@@ -31,6 +31,9 @@ HTTP POST /jobs {query}                  async job (uuid)
    -> zip dataroom/  ->  GET /jobs/{id}/result  (download .zip)
 ```
 
+Both containers use **prebuilt** base images (`pytorch/pytorch:*-runtime` for the app,
+`ghcr.io/ggml-org/llama.cpp:server-cuda` for the LLM) so there is no torch/CUDA recompile.
+
 ## Architecture (containers)
 
 ```

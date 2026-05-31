@@ -28,6 +28,28 @@ def llama_kv() -> dict:
         return {}
 
 
+def llama_tps() -> dict:
+    """Live throughput (tok/s) from llama.cpp Prometheus /metrics (needs --metrics)."""
+    out = {}
+    try:
+        with urllib.request.urlopen(f"{LLAMA_URL}/metrics", timeout=3) as r:
+            for line in r.read().decode(errors="ignore").splitlines():
+                if line.startswith("#") or " " not in line:
+                    continue
+                k, v = line.rsplit(" ", 1)
+                try:
+                    val = float(v)
+                except ValueError:
+                    continue
+                if k == "llamacpp:predicted_tokens_seconds":
+                    out["decode"] = round(val, 1)
+                elif k == "llamacpp:prompt_tokens_seconds":
+                    out["prefill"] = round(val, 1)
+    except Exception:
+        pass
+    return out
+
+
 def _walk_tree(root: Path) -> tuple[dict, int]:
     """Return (nested tree dict, total bytes), skipping index sidecar files."""
     total = 0
@@ -97,6 +119,7 @@ def parse_pi_log(log_path: Path) -> dict:
             "percent": round(100 * ctx_tokens / window, 1) if window else 0,
             "processing": kv.get("processing", False),
         },
+        "tps": llama_tps(),
     }
 
 

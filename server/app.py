@@ -26,6 +26,36 @@ _jobs: dict[str, dict] = {}
 _lock = threading.Lock()
 
 
+def _save_meta(job_id: str):
+    """Persist job meta so status survives an app restart."""
+    try:
+        (JOBS / job_id / "meta.json").write_text(json.dumps(_jobs.get(job_id, {})))
+    except Exception:
+        pass
+
+
+def _load_meta(job_id: str) -> dict:
+    """Recover job meta from disk (after a restart). Reconciles stale 'running' state."""
+    job_dir = JOBS / job_id
+    if not job_dir.exists():
+        return {}
+    meta = {}
+    mp = job_dir / "meta.json"
+    if mp.exists():
+        try:
+            meta = json.loads(mp.read_text())
+        except Exception:
+            meta = {}
+    if (job_dir / "dataroom.zip").exists():
+        meta["status"] = "done"
+    elif meta.get("status") == "running":
+        # app restarted mid-run; the worker thread is gone -> mark interrupted
+        meta["status"] = "interrupted"
+    if not meta.get("query") and (job_dir / "query.txt").exists():
+        meta["query"] = (job_dir / "query.txt").read_text(errors="ignore").strip()
+    return meta
+
+
 class JobReq(BaseModel):
     query: str
     max_turns: int | None = None
@@ -45,6 +75,7 @@ def _run(job_id: str, query: str, max_turns: int | None, max_seconds: int | None
     with _lock:
         _jobs[job_id]["status"] = "running"
         _jobs[job_id]["started"] = time.time()
+    _save_meta(job_id)
     log = open(job_dir / "orchestrator.log", "a")
     rc = subprocess.call(cmd, cwd=str(HERE.parent), stdout=log, stderr=subprocess.STDOUT)
     zip_path = job_dir / "dataroom.zip"
@@ -52,6 +83,7 @@ def _run(job_id: str, query: str, max_turns: int | None, max_seconds: int | None
         _jobs[job_id]["status"] = "done" if zip_path.exists() and rc == 0 else "failed"
         _jobs[job_id]["rc"] = rc
         _jobs[job_id]["finished"] = time.time()
+    _save_meta(job_id)
 
 
 @app.get("/health")
@@ -66,6 +98,8 @@ def create(req: JobReq):
     job_id = uuid.uuid4().hex[:12]
     with _lock:
         _jobs[job_id] = {"status": "queued", "query": req.query}
+    (JOBS / job_id).mkdir(parents=True, exist_ok=True)
+    _save_meta(job_id)
     t = threading.Thread(target=_run, args=(job_id, req.query, req.max_turns,
                                             req.max_seconds), daemon=True)
     t.start()
@@ -75,12 +109,11 @@ def create(req: JobReq):
 @app.get("/jobs/{job_id}")
 def status(job_id: str):
     with _lock:
-        j = _jobs.get(job_id)
+        j = dict(_jobs.get(job_id, {}))
     if not j:
-        # recover from disk if process restarted
-        if (JOBS / job_id / "dataroom.zip").exists():
-            return {"status": "done"}
-        raise HTTPException(404, "unknown job")
+        j = _load_meta(job_id)
+        if not j:
+            raise HTTPException(404, "unknown job")
     return j
 
 
@@ -100,9 +133,11 @@ def stats_ep(job_id: str):
         raise HTTPException(404, "unknown job")
     with _lock:
         meta = dict(_jobs.get(job_id, {}))
+    if not meta:
+        meta = _load_meta(job_id)   # recover after app restart
     s = job_stats(job_dir)
     s["job_id"] = job_id
-    s["job_status"] = meta.get("status", "done" if (job_dir / "dataroom.zip").exists() else "unknown")
+    s["job_status"] = meta.get("status") or ("done" if (job_dir / "dataroom.zip").exists() else "unknown")
     query = meta.get("query", "")
     qf = job_dir / "query.txt"
     if not query and qf.exists():

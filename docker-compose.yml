@@ -24,6 +24,7 @@ services:
       --model /models/Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf
       --host 0.0.0.0
       --port 8080
+      --metrics
       --ctx-size ${CTX_SIZE:-131072}
       --parallel 1
       --flash-attn 1

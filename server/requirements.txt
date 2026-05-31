@@ -6,4 +6,4 @@ pydantic>=2
 sentence-transformers
 peft
 einops
-torch
+# torch is provided by the pytorch/pytorch base image; do not pin it here (avoids reinstall).

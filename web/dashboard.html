@@ -73,6 +73,11 @@
       <div class="bar" id="ctxbar"><i></i></div>
     </div>
     <div class="cell">
+      <div class="k">Throughput <span id="gen"></span></div>
+      <div class="big"><span id="tps">0</span> <span style="font-size:13px;color:var(--mut)">tok/s</span></div>
+      <div class="sub">decode · prefill <span id="pps">0</span> tok/s</div>
+    </div>
+    <div class="cell">
       <div class="k">Tool calls</div>
       <div class="big" id="toolN">0</div>
       <div class="sub"><span id="turns">0</span> agent turns · cost $<span id="cost">0.00</span></div>
@@ -147,9 +152,14 @@ async function tick(){
     $("ctxwin").textContent=(c.window||0).toLocaleString();
     const bar=$("ctxbar");bar.querySelector("i").style.width=Math.min(100,c.percent||0)+"%";
     bar.classList.toggle("warn",(c.percent||0)>=80);
+    const tps=d.tps||{};
+    $("tps").textContent=(tps.decode!=null?tps.decode:0);
+    $("pps").textContent=(tps.prefill!=null?tps.prefill:0);
+    $("gen").innerHTML=c.processing?'<span class="dot on blink"></span>generating':'';
     $("toolN").textContent=d.tool_calls||0;
     $("turns").textContent=d.turns||0;
-    $("cost").textContent=((d.usage&&d.usage.cost)||0).toFixed(4);
+    let cst=(d.usage&&d.usage.cost);if(cst&&typeof cst==="object")cst=cst.total;
+    $("cost").textContent=(cst||0).toFixed(4);
     const dr=d.dataroom||{};
     $("size").textContent=human(dr.size_bytes||0);
     $("files").textContent=dr.file_count||0;

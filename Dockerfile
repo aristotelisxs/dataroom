@@ -1,45 +1,40 @@
 # DaaS app container: Pi harness (Node) + FastAPI orchestrator + v5-nano embedder.
-# The embedder runs on the GPU by default (v5-nano is tiny, <1GB VRAM) for speed,
-# sharing the L4 with the LLM. Set EMBED_DEVICE=cpu to fall back to CPU.
-# The LLM itself runs in the separate llama-server (GPU) container.
-FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+#
+# Base: official PyTorch CUDA *runtime* image (torch + CUDA + cuDNN prebuilt, cu128 to
+# match the GCP Deep Learning VM host). Using a prebuilt base avoids recompiling/reinstalling
+# torch + the CUDA stack on every build. The embedder runs on the GPU by default (v5-nano is
+# tiny, <1GB VRAM); set EMBED_DEVICE=cpu to fall back. The LLM runs in the separate
+# llama-server (ghcr.io/ggml-org/llama.cpp:server-cuda) container, also prebuilt.
+FROM pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime
 
-ENV DEBIAN_FRONTEND=noninteractive
+ENV DEBIAN_FRONTEND=noninteractive PIP_NO_CACHE_DIR=1
 
-# Node 22 + Python + build basics
+# Node 22 (for Pi) + git. torch/CUDA already in the base, so no heavy compile here.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl ca-certificates git python3 python3-pip python3-venv gnupg \
+        curl ca-certificates git gnupg \
     && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # Pi coding agent (pinned for reproducibility)
 ARG PI_VERSION=0.78.0
-RUN npm install -g @earendil-works/pi-coding-agent@${PI_VERSION} \
-    && npm cache clean --force
-ENV PI_BIN=pi
-ENV PI_SKIP_VERSION_CHECK=1
-ENV PI_OFFLINE=0
+RUN npm install -g @earendil-works/pi-coding-agent@${PI_VERSION} && npm cache clean --force
+ENV PI_BIN=pi PI_SKIP_VERSION_CHECK=1 PI_OFFLINE=0
 
-# pi has NO native MCP. The pi-mcp-adapter extension exposes MCP servers (Jina) as a
-# single `mcp` proxy tool. Install it globally + its runtime deps; the orchestrator loads
-# it with --extension. It reads mcp.json from PI_CODING_AGENT_DIR (set per job).
+# pi has NO native MCP. The pi-mcp-adapter extension exposes MCP servers (Jina) as a single
+# `mcp` proxy tool. Install it globally + runtime deps; the orchestrator loads it with
+# --extension. It reads mcp.json from PI_CODING_AGENT_DIR (set per job).
 ARG MCP_ADAPTER_VERSION=2.8.0
 ENV PI_MCP_ADAPTER=/opt/pi-mcp/node_modules/pi-mcp-adapter/index.ts
 RUN mkdir -p /opt/pi-mcp && cd /opt/pi-mcp \
     && npm init -y >/dev/null 2>&1 \
-    && npm install pi-mcp-adapter@${MCP_ADAPTER_VERSION} \
-    && npm cache clean --force
+    && npm install pi-mcp-adapter@${MCP_ADAPTER_VERSION} && npm cache clean --force
 
 WORKDIR /app
 
-# Python deps. CUDA torch (cu124 wheels) so the embedder can use the GPU.
-# The cuda base ships pip 22.0.2 (no --break-system-packages); upgrade pip first.
+# Python deps. torch is already in the base image, so it is NOT reinstalled here.
 COPY server/requirements.txt server/requirements.txt
-RUN python3 -m pip install --no-cache-dir --upgrade pip \
-    && pip3 install --no-cache-dir \
-        -r server/requirements.txt \
-        --extra-index-url https://download.pytorch.org/whl/cu124
+RUN pip install -r server/requirements.txt
 
 # App code
 COPY server ./server
@@ -47,10 +42,10 @@ COPY pi ./pi
 COPY templates ./templates
 COPY web ./web
 
-# Pre-bake the v5-nano weights into the image (download on CPU at build time; no GPU
+# Pre-bake the v5-nano weights into the image (CPU download at build time; no GPU needed
 # during build) so the first job starts fast and the deploy is reproducible.
 ENV HF_HOME=/app/.hf
-RUN python3 -c "import os; os.environ['CUDA_VISIBLE_DEVICES']=''; \
+RUN python -c "import os; os.environ['CUDA_VISIBLE_DEVICES']=''; \
 from sentence_transformers import SentenceTransformer; \
 SentenceTransformer('jinaai/jina-embeddings-v5-text-nano', device='cpu', trust_remote_code=True)" \
     || echo "WARN: embed model prefetch skipped (will download on first run)"
@@ -58,7 +53,7 @@ SentenceTransformer('jinaai/jina-embeddings-v5-text-nano', device='cpu', trust_r
 ENV JOBS_DIR=/data/jobs
 # Embedder device: cuda (default, shares the L4) or cpu (zero VRAM contention).
 ENV EMBED_DEVICE=cuda
-# Dashboard context bar denominator; keep in sync with llama-server --ctx-size
-ENV CONTEXT_WINDOW=16384
+# Dashboard context bar denominator; keep in sync with llama-server --ctx-size.
+ENV CONTEXT_WINDOW=131072
 EXPOSE 8000
-CMD ["python3", "-m", "server.app"]
+CMD ["python", "-m", "server.app"]
