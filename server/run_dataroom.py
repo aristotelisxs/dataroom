@@ -36,7 +36,7 @@ def write_pi_config(agent_dir: Path, llama_url: str, jina_key: str, index_url: s
                 "api": "openai-completions",
                 "apiKey": "sk-local",
                 "compat": {"supportsDeveloperRole": False, "supportsReasoningEffort": False},
-                "models": [{"id": "qwen3.6", "contextWindow": 16384, "maxTokens": 8192}],
+                "models": [{"id": "qwen3.6", "contextWindow": 16384, "maxTokens": 4096}],
             }
         }
     }, indent=2))
@@ -45,7 +45,11 @@ def write_pi_config(agent_dir: Path, llama_url: str, jina_key: str, index_url: s
         "defaultModel": "qwen3.6",
         "defaultThinkingLevel": "off",
         "enableInstallTelemetry": False,
-        "compaction": {"enabled": True, "keepRecentTokens": 9000, "reserveTokens": 4096},
+        # Pi has built-in auto-compaction (core, fires in --mode json too). With a 16K
+        # window we trigger early: compaction at >16384-5000 tokens, keeping the most
+        # recent 8000 and replacing older turns with an LLM summary. maxTokens (4096) <=
+        # reserveTokens (5000) so a full model response never overflows the window.
+        "compaction": {"enabled": True, "keepRecentTokens": 8000, "reserveTokens": 5000},
     }, indent=2))
     # Jina MCP (search_web / read_url / embeddings) — hosted endpoint
     (agent_dir / "mcp.json").write_text(json.dumps({
