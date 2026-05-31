@@ -27,6 +27,12 @@ services:
     # tiny -- ~ctx*10.24KB at q8_0, i.e. ~1.3GB at the full 131072 window, not the multi-GB a
     # dense 35B would need. Real headroom is dominated by the GDN recurrent-state pool, compute
     # buffers, and the v5-nano embedder. Measure with nvidia-smi; lower CTX_SIZE if it OOMs.
+    #
+    # NOTE: --cache-reuse is intentionally OMITTED from the command below. This hybrid (Gated
+    # DeltaNet) model has documented recurrent-state cache drift that can silently corrupt
+    # digits across the long --continue + auto-compaction loop (llama.cpp#21681), fatal for a
+    # factual dataroom. Re-add `--cache-reuse 256` only once the fix is confirmed in the pinned
+    # image and verified by the numeric multi-turn smoke test in docs/DEPLOY.md.
     command: >
       --model /models/Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf
       --host 0.0.0.0
@@ -46,11 +52,6 @@ services:
       --jinja
       --chat-template-file /templates/chat_template.jinja
       -fitt 512
-      # --cache-reuse intentionally OFF: this hybrid (Gated DeltaNet) model has documented
-      # recurrent-state cache-drift that can silently corrupt digits across the long
-      # --continue + auto-compaction loop (llama.cpp#21681), which is fatal for a factual
-      # dataroom. Re-enable `--cache-reuse 256` only once the fix is confirmed in the pinned
-      # image and verified by the numeric multi-turn smoke test in docs/DEPLOY.md.
 
   daas:
     build: .
