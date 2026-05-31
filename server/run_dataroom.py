@@ -16,7 +16,7 @@ stopped is persisted to run_meta.json and surfaced on the dashboard.
 Most of the intelligence lives in the agent, not here: we expose tools + a one-page skill
 and let Qwen run the harness. This file only supervises the loop and enforces the floor/ceiling.
 """
-import argparse, json, os, subprocess, sys, time, zipfile, signal, socket, urllib.request, urllib.error
+import argparse, json, os, subprocess, sys, time, zipfile, signal, socket, threading, urllib.request, urllib.error
 from collections import deque
 from pathlib import Path
 
@@ -140,20 +140,25 @@ def count_jina_calls(log_path: Path) -> int:
     The self-hosted LLM is a sunk cost; Jina search_web/read_url/embeddings are billed
     per call and all funnel through the single `mcp` proxy tool, so this bounds spend."""
     n = 0
-    if log_path.exists():
-        with open(log_path, errors="ignore") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line[0] != "{":
-                    continue
-                try:
-                    ev = json.loads(line)
-                except Exception:
-                    continue
-                if ev.get("type") == "tool_execution_start":
-                    name = ev.get("toolName") or ""
-                    if name == "mcp" or name.startswith("mcp:"):
-                        n += 1
+    if not log_path.exists():
+        return n
+    cap = 64 * 1024 * 1024            # bound work; logs are small now that deltas are filtered
+    size = log_path.stat().st_size
+    with open(log_path, "rb") as f:
+        if size > cap:
+            f.seek(size - cap)
+            f.readline()              # discard partial line
+        for raw in f:
+            if b'"tool_execution_start"' not in raw:
+                continue
+            try:
+                ev = json.loads(raw.decode("utf-8", "ignore"))
+            except Exception:
+                continue
+            if ev.get("type") == "tool_execution_start":
+                name = ev.get("toolName") or ""
+                if name == "mcp" or name.startswith("mcp:"):
+                    n += 1
     return n
 
 
@@ -175,12 +180,44 @@ def run_turn(job_dir: Path, agent_dir: Path, prompt: str, timeout: int) -> int:
     log = open(job_dir / "pi.log", "a")
     log.write(f"\n\n===== TURN @ {time.ctime()} =====\n")
     log.flush()
+    # Stream pi's JSON events and DROP per-token `message_update` deltas. Raw --mode json
+    # re-serializes the entire message (incl. the full thinking block) on every token, which
+    # bloats pi.log to multiple GB in minutes and makes /stats (which parses it) time out.
+    # The structured events we actually use -- agent_start / tool_execution_* / message_end --
+    # are kept. start_new_session so the timeout watchdog can kill the whole pi process group.
+    proc = subprocess.Popen(cmd, cwd=str(job_dir), env=env, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True, start_new_session=True)
+    timed_out = {"v": False}
+
+    def _kill():
+        timed_out["v"] = True
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+
+    watchdog = threading.Timer(max(1, timeout), _kill)
+    watchdog.start()
     try:
-        return subprocess.call(cmd, cwd=str(job_dir), env=env,
-                               stdout=log, stderr=subprocess.STDOUT, timeout=max(1, timeout))
-    except subprocess.TimeoutExpired:
+        for line in proc.stdout:
+            if '"type":"message_update"' in line:
+                continue
+            log.write(line)
+        proc.wait()
+    finally:
+        watchdog.cancel()
+        try:
+            proc.stdout.close()
+        except Exception:
+            pass
+        log.flush()
+    if timed_out["v"]:
         log.write("\n[orchestrator] turn timed out\n")
         return 124
+    return proc.returncode if proc.returncode is not None else 0
 
 
 def zip_dataroom(dataroom: Path, out_zip: Path):

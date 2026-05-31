@@ -192,6 +192,32 @@ def _index_log_errors(job_dir: Path) -> list:
     return out[-10:]
 
 
+# Cap how much of pi.log we parse per /stats call. Pi's --mode json can emit huge per-token
+# `message_update` deltas; even with source-side filtering this bounds the work so the live
+# dashboard poll never stalls on a large log. We read only the tail and skip delta lines.
+MAX_LOG_BYTES = 24 * 1024 * 1024
+
+
+def _iter_events(log_path: Path):
+    """Yield parsed JSON events from the tail of pi.log, cheaply skipping message_update deltas."""
+    if not log_path.exists():
+        return
+    size = log_path.stat().st_size
+    with open(log_path, "rb") as f:
+        if size > MAX_LOG_BYTES:
+            f.seek(size - MAX_LOG_BYTES)
+            f.readline()                      # discard partial first line
+        for raw in f:
+            if b'"type":"message_update"' in raw:   # streaming delta -> skip without decoding
+                continue
+            if b"{" not in raw[:1] and not raw.lstrip().startswith(b"{"):
+                continue
+            try:
+                yield json.loads(raw.decode("utf-8", "ignore"))
+            except Exception:
+                continue
+
+
 def parse_pi_log(log_path: Path, job_dir: Path) -> dict:
     tool_counts: dict = {}
     tool_calls = 0
@@ -199,16 +225,7 @@ def parse_pi_log(log_path: Path, job_dir: Path) -> dict:
     turns = 0
     recent = []     # ring buffer of recent activity
     errors = []     # failed tool calls
-    if log_path.exists():
-        with open(log_path, errors="ignore") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line[0] != "{":
-                    continue
-                try:
-                    ev = json.loads(line)
-                except Exception:
-                    continue
+    for ev in _iter_events(log_path):
                 t = ev.get("type")
                 if t == "agent_start":
                     turns += 1
