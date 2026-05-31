@@ -271,12 +271,11 @@ async function tick(){
 
     setStatus(d.job_status,d.done);
 
-    // download: gate on zip existence, label partial unless a clean DONE
+    // download: always available -> live snapshot zip (timestamped filename, server-side)
     const dl=$("dl");
-    if(d.zip_ready){dl.removeAttribute("disabled");dl.href=`/jobs/${JOB}/result`;
-      dl.textContent=d.done?"download dataroom.zip":"download dataroom.zip (partial)";}
-    else{dl.setAttribute("disabled","");dl.href="javascript:void 0";
-      dl.textContent="download dataroom.zip";}
+    dl.removeAttribute("disabled");
+    dl.href=`/jobs/${JOB}/snapshot`;
+    dl.textContent=d.done?"download dataroom.zip":"download dataroom.zip (so far)";
     $("ts").textContent=new Date().toLocaleTimeString();
   }catch(e){
     // staleness: dim vitals if we have not had a good poll in >2 intervals

@@ -3,13 +3,15 @@
 
 POST /jobs            {query}            -> {job_id}
 GET  /jobs/{id}                          -> {status, turns, ...}
-GET  /jobs/{id}/result                   -> dataroom.zip (when status=done)
+GET  /jobs/{id}/result                   -> final dataroom.zip (when status=done)
+GET  /jobs/{id}/snapshot                 -> dataroom-so-far.zip, zipped live (any time)
 GET  /jobs/{id}/log                      -> tail of pi.log
 GET  /health
 """
-import json, os, subprocess, sys, threading, uuid, time
+import io, json, os, subprocess, sys, threading, uuid, time, zipfile
+from datetime import datetime, timezone
 from pathlib import Path
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse, PlainTextResponse, HTMLResponse
 from pydantic import BaseModel
 import uvicorn
@@ -152,6 +154,29 @@ def result(job_id: str):
         raise HTTPException(409, "not ready")
     return FileResponse(str(zip_path), media_type="application/zip",
                         filename=f"dataroom-{job_id}.zip")
+
+
+@app.get("/jobs/{job_id}/snapshot")
+def snapshot(job_id: str):
+    """Zip the dataroom AS IT IS RIGHT NOW (works mid-run), timestamped filename.
+
+    Unlike /result (the final zip the orchestrator writes when the job stops), this builds
+    the archive on demand from whatever is on disk, so the download is always available and
+    always current."""
+    job_dir = JOBS / job_id
+    if not job_dir.exists():
+        raise HTTPException(404, "unknown job")
+    dataroom = job_dir / "dataroom"
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        if dataroom.exists():
+            for p in sorted(dataroom.rglob("*")):
+                if p.is_file() and not p.name.startswith(".index"):
+                    z.write(p, p.relative_to(dataroom.parent))
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    fn = f"dataroom-{job_id}-{ts}.zip"
+    return Response(content=buf.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{fn}"'})
 
 
 @app.get("/jobs/{job_id}/stats")
