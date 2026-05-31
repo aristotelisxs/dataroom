@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Dataroom-as-a-Service</title>
 <style>
-  :root{--bg:#fff;--fg:#000;--mut:#666;--line:#000}
-  @media (prefers-color-scheme: dark){:root{--bg:#000;--fg:#fff;--mut:#999;--line:#fff}}
+  :root{--bg:#fff;--fg:#000;--mut:#666;--line:#000;--soft:#e5e5e5}
+  @media (prefers-color-scheme: dark){:root{--bg:#000;--fg:#fff;--mut:#999;--line:#fff;--soft:#222}}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--fg);
     font-family:"Berkeley Mono",ui-monospace,Menlo,Consolas,monospace;font-size:13px;line-height:1.5}
-  .wrap{max-width:680px;margin:0 auto;padding:48px 24px}
+  .wrap{max-width:820px;margin:0 auto;padding:48px 24px}
   h1{font-size:15px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
     border-bottom:1px solid var(--line);padding-bottom:12px}
   p{color:var(--mut)}
@@ -18,22 +18,53 @@
     border:1px solid var(--line);padding:10px;font:inherit;resize:vertical}
   .btn{margin-top:10px;border:1px solid var(--line);background:var(--fg);color:var(--bg);
     padding:8px 16px;cursor:pointer;font:inherit}
+  .btn:disabled{opacity:.4;cursor:not-allowed}
   .out{margin-top:16px;color:var(--mut)}
   a{color:inherit}
+  /* jobs list */
+  .jobs-h{display:flex;justify-content:space-between;align-items:baseline;
+    margin-top:36px;border-bottom:1px solid var(--line);padding-bottom:8px}
+  .jobs-h h2{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;margin:0}
+  .jobs-h .ref{color:var(--mut);font-size:11px}
+  .jobs{margin-top:4px}
+  .job{display:grid;grid-template-columns:96px 1fr auto auto;gap:12px;align-items:center;
+    padding:9px 0;border-bottom:1px solid var(--soft);cursor:pointer}
+  .job:hover{background:var(--soft)}
+  .dot{display:inline-block;width:7px;height:7px;border:1px solid var(--line);margin-right:6px;
+    vertical-align:middle}
+  .dot.on{background:var(--fg)}
+  .blink{animation:b 1s steps(2) infinite}
+  @keyframes b{50%{opacity:.2}}
+  .st{font-size:11px;white-space:nowrap;text-transform:capitalize}
+  .q{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+  .pg{color:var(--mut);font-size:11px;white-space:nowrap;text-align:right}
+  .dl{font-size:11px;border:1px solid var(--line);padding:2px 8px;text-decoration:none;white-space:nowrap}
+  .empty{color:var(--mut);font-size:12px;padding:14px 0}
+  .minibar{display:inline-block;width:54px;height:7px;border:1px solid var(--line);
+    position:relative;margin-left:8px;vertical-align:middle}
+  .minibar > i{position:absolute;left:0;top:0;bottom:0;background:var(--fg)}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>Dataroom-as-a-Service</h1>
   <p>Give a query. An autonomous Pi + self-hosted Qwen3.6 harness crawls, researches, and
-     builds a structured dataroom. Async — you get a live dashboard and a zip.</p>
+     builds a structured dataroom until it is comprehensive. Async — live dashboard + zip.</p>
   <textarea id="q" placeholder="e.g. Competitive landscape of self-hosted small embedding models in 2026"></textarea>
   <div><button class="btn" id="go">Start research</button></div>
   <div class="out" id="out"></div>
+
+  <div class="jobs-h">
+    <h2>Jobs</h2>
+    <span class="ref" id="ref">—</span>
+  </div>
+  <div class="jobs" id="jobs"><div class="empty">loading…</div></div>
 </div>
+
 <script>
 const $=id=>document.getElementById(id);
 const go=$("go");
+
 go.onclick=async()=>{
   if(go.disabled)return;
   const query=$("q").value.trim();
@@ -51,6 +82,56 @@ go.onclick=async()=>{
     go.disabled=false;
   }
 };
+
+const esc=s=>String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+
+function dotFor(s){
+  if(s==="running")return '<span class="dot on blink"></span>';
+  if(s==="done"||s==="stopped"||s==="failed"||s==="interrupted")return '<span class="dot on"></span>';
+  return '<span class="dot"></span>';
+}
+function progressText(j){
+  const fc=j.file_count||0, sub=j.substantive_files||0, min=j.min_files||100;
+  const pr=j.progress||{};
+  if(j.status==="queued")return "queued";
+  if(j.status==="running"){
+    let t=`${sub}/${min} files`;
+    if(pr.total>0)t+=` · ${pr.done}/${pr.total} q`;
+    return t;
+  }
+  if(j.status==="done")return `done · ${fc} files`;
+  if(j.status==="stopped")return `${j.stop_reason||"stopped"} · ${fc} files`;
+  if(j.status==="interrupted")return `interrupted · ${fc} files`;
+  if(j.status==="failed")return "failed";
+  return `${fc} files`;
+}
+function miniBar(j){
+  const sub=j.substantive_files||0, min=j.min_files||100;
+  const pr=j.progress||{};
+  let pct = pr.total>0 ? 100*pr.done/pr.total : 100*Math.min(1,sub/min);
+  return `<span class="minibar"><i style="width:${Math.min(100,pct)}%"></i></span>`;
+}
+
+async function loadJobs(){
+  try{
+    const r=await fetch("/jobs",{cache:"no-store"});
+    if(!r.ok)throw 0;
+    const d=await r.json();
+    const jobs=d.jobs||[];
+    if(!jobs.length){$("jobs").innerHTML='<div class="empty">no jobs yet — submit a query above.</div>';}
+    else{
+      $("jobs").innerHTML=jobs.map(j=>`
+        <div class="job" onclick="location.href='/jobs/${j.job_id}/dashboard'">
+          <span class="st">${dotFor(j.status)}${esc(j.status)}</span>
+          <span class="q" title="${esc(j.query)}">${esc(j.query)||"(no query)"}</span>
+          <span class="pg">${esc(progressText(j))}${(j.status==="running")?miniBar(j):""}</span>
+          <a class="dl" href="/jobs/${j.job_id}/snapshot" onclick="event.stopPropagation()">zip</a>
+        </div>`).join("");
+    }
+    $("ref").textContent="updated "+new Date().toLocaleTimeString();
+  }catch(e){ $("ref").textContent="(reconnecting…)"; }
+}
+loadJobs();setInterval(loadJobs,4000);
 </script>
 </body>
 </html>

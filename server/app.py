@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, PlainTextResponse, HTMLResponse
 from pydantic import BaseModel
 import uvicorn
 
-from server.stats import job_stats
+from server.stats import job_stats, floor_metrics, _status_progress
 
 HERE = Path(__file__).resolve().parent
 WEB = HERE.parent / "web"
@@ -134,6 +134,48 @@ def create(req: JobReq):
                                             req.max_seconds), daemon=True)
     t.start()
     return {"job_id": job_id, "status": "queued"}
+
+
+@app.get("/jobs")
+def list_jobs():
+    """Lightweight summary of every job (live + on-disk) for the homepage list.
+
+    Deliberately cheap: status/query from meta + the on-disk floor/progress; it does NOT
+    parse pi.log or poll llama (that is the per-job dashboard's job)."""
+    ids = set(_jobs.keys())
+    if JOBS.exists():
+        for p in JOBS.iterdir():
+            if p.is_dir():
+                ids.add(p.name)
+    rows = []
+    for jid in ids:
+        with _lock:
+            meta = dict(_jobs.get(jid, {}))
+        if not meta or meta.get("status") not in ("queued", "running"):
+            disk = _load_meta(jid)                       # reconciles terminal status from disk
+            disk.update({k: v for k, v in meta.items() if v is not None})
+            meta = disk or meta
+        job_dir = JOBS / jid
+        dataroom = job_dir / "dataroom"
+        fm = floor_metrics(dataroom)
+        pr = _status_progress(dataroom)
+        fc = (sum(1 for p in dataroom.rglob("*")
+                  if p.is_file() and not p.name.startswith(".index")) if dataroom.exists() else 0)
+        rows.append({
+            "job_id": jid,
+            "status": meta.get("status", "unknown"),
+            "stop_reason": meta.get("stop_reason"),
+            "query": (meta.get("query") or "")[:200],
+            "started": meta.get("started"),
+            "finished": meta.get("finished"),
+            "substantive_files": fm["substantive_files"],
+            "min_files": fm["min_files"],
+            "progress": pr,
+            "file_count": fc,
+            "zip_ready": (job_dir / "dataroom.zip").exists(),
+        })
+    rows.sort(key=lambda r: (r.get("started") or 0), reverse=True)
+    return {"jobs": rows}
 
 
 @app.get("/jobs/{job_id}")
