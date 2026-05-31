@@ -14,9 +14,9 @@
   *{box-sizing:border-box}
   html,body{margin:0;background:var(--bg);color:var(--fg);
     font-family:"Berkeley Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-    font-size:13px;line-height:1.45}
+    font-size:13px;line-height:1.45;overflow-x:hidden}
   a{color:inherit}
-  .wrap{max-width:1100px;margin:0 auto;padding:24px}
+  .wrap{width:100%;max-width:none;margin:0;padding:20px 28px;min-width:0}
   header{display:flex;justify-content:space-between;align-items:baseline;
     border-bottom:1px solid var(--line);padding-bottom:12px;margin-bottom:0}
   h1{font-size:14px;font-weight:600;letter-spacing:.04em;margin:0;text-transform:uppercase}
@@ -28,9 +28,10 @@
   @keyframes b{50%{opacity:.2}}
   /* stop-reason / state banner */
   .banner{border:1px solid var(--line);border-left-width:4px;padding:8px 12px;margin:0;
-    border-bottom:none;font-size:12px;display:none}
+    border-bottom:none;font-size:12px;display:none;overflow-wrap:anywhere}
   .banner b{letter-spacing:.04em}
-  .query{border-bottom:1px solid var(--line);padding:10px 0;color:var(--mut);font-size:12px}
+  .query{border-bottom:1px solid var(--line);padding:10px 0;color:var(--mut);font-size:12px;
+    overflow-wrap:anywhere}
   .query b{color:var(--fg)}
   /* progress-to-floor */
   .prog{border-bottom:1px solid var(--line);padding:12px 0}
@@ -38,10 +39,11 @@
   .pbar{height:14px;border:1px solid var(--line);position:relative;margin-top:8px;overflow:hidden}
   .pbar > i{position:absolute;left:0;top:0;bottom:0;background:var(--fill);width:0%}
   .pbar > .floor{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--fill);opacity:.6}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:0;border-bottom:1px solid var(--line)}
+  /* responsive: fills the full width, wrapping into as many columns as fit */
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:0;
+    border-left:1px solid var(--line);border-bottom:1px solid var(--line)}
   .cell{border-right:1px solid var(--line);border-bottom:1px solid var(--line);
-    padding:14px 16px}
-  .cell:nth-child(2n){border-right:none}
+    padding:14px 16px;min-width:0;overflow:hidden}
   .k{color:var(--mut);font-size:10px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
   .big{font-size:26px;font-weight:600;letter-spacing:-.01em}
   .sub{color:var(--mut);font-size:11px;margin-top:2px}
@@ -59,17 +61,17 @@
   .row .n{width:34px;text-align:right;color:var(--mut)}
   /* panels: activity + errors + tree */
   .panel{padding:14px 16px;border-bottom:1px solid var(--line)}
-  .feed{margin:0;list-style:none;padding:0;max-height:200px;overflow:auto;font-size:12px}
-  .feed li{display:flex;gap:8px;padding:1px 0;white-space:nowrap;overflow:hidden}
+  .feed{margin:0;list-style:none;padding:0;max-height:min(34vh,360px);overflow:auto;font-size:12px}
+  .feed li{display:flex;gap:8px;padding:1px 0;white-space:nowrap;min-width:0}
   .feed li .t{color:var(--mut);width:42px;flex:none}
-  .feed li .v{overflow:hidden;text-overflow:ellipsis}
+  .feed li .v{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
   .feed li.live .v{font-weight:600}
-  .errs{margin:0;list-style:none;padding:0;max-height:170px;overflow:auto;font-size:12px}
+  .errs{margin:0;list-style:none;padding:0;max-height:min(34vh,300px);overflow:auto;font-size:12px}
   .errs li{border-left:3px solid var(--line);padding:2px 0 2px 8px;margin:3px 0;white-space:nowrap;
     overflow:hidden;text-overflow:ellipsis}
   .errs li .g{font-weight:700;margin-right:6px}
   .empty{color:var(--mut);font-size:11px}
-  pre.tree{margin:0;white-space:pre;overflow:auto;max-height:360px;font-size:12px}
+  pre.tree{margin:0;white-space:pre;overflow:auto;max-height:min(55vh,620px);font-size:12px}
   .tree .d{font-weight:600}
   .tree .s{color:var(--mut)}
   .foot{display:flex;justify-content:space-between;color:var(--mut);font-size:11px;padding-top:12px}
