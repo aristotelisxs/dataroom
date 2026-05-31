@@ -5,36 +5,48 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Dataroom</title>
 <style>
-  :root{--bg:#fff;--fg:#000;--mut:#666;--line:#000;--soft:#e5e5e5}
-  @media (prefers-color-scheme: dark){:root{--bg:#000;--fg:#fff;--mut:#999;--line:#fff;--soft:#222}}
+  :root{--bg:#fff;--fg:#000;--mut:#666;--line:#000;--soft:#e5e5e5;--fill:#f5f5f5}
+  @media (prefers-color-scheme: dark){:root{--bg:#000;--fg:#fff;--mut:#999;--line:#fff;--soft:#222;--fill:#111}}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--fg);
     font-family:"Berkeley Mono",ui-monospace,Menlo,Consolas,monospace;font-size:13px;line-height:1.5}
   .wrap{max-width:820px;margin:0 auto;padding:48px 24px}
   h1{font-size:15px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
-    border-bottom:1px solid var(--line);padding-bottom:12px}
+    border-bottom:1px solid var(--line);padding-bottom:12px;margin:0}
   p{color:var(--mut)}
+  .lede{color:var(--fg);max-width:60ch}
+  .sub{color:var(--mut);font-size:12px;margin-top:6px}
+  .sec-h{margin-top:32px;border-bottom:1px solid var(--line);padding-bottom:8px;margin-bottom:16px}
+  .sec-h h2{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;margin:0}
   textarea{width:100%;min-height:90px;background:var(--bg);color:var(--fg);
     border:1px solid var(--line);padding:10px;font:inherit;resize:vertical}
   .btn{margin-top:10px;border:1px solid var(--line);background:var(--fg);color:var(--bg);
     padding:8px 16px;cursor:pointer;font:inherit}
   .btn:disabled{opacity:.4;cursor:not-allowed}
-  .ctl{display:flex;align-items:center;gap:14px;margin-top:10px;flex-wrap:wrap}
-  .ctl .btn{margin-top:0}
-  .ctl label{font-size:12px;color:var(--mut);display:flex;align-items:center;gap:6px}
-  .ctl input{width:80px;background:var(--bg);color:var(--fg);border:1px solid var(--line);
-    padding:7px 8px;font:inherit}
+  .field{margin-top:18px}
+  .lbl{display:block;font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--mut);margin-bottom:6px}
+  .fieldrow{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+  .fieldrow input{width:80px;background:var(--bg);color:var(--fg);
+    border:1px solid var(--line);padding:7px 8px;font:inherit}
+  .hint{font-size:11px;color:var(--mut);line-height:1.45;flex:1;min-width:220px}
+  .actions{margin-top:20px;padding-top:16px;border-top:1px solid var(--soft)}
+  .actions .btn{margin-top:0}
   .out{margin-top:16px;color:var(--mut)}
   a{color:inherit}
+  textarea:focus,.fieldrow input:focus,.btn:focus{outline:1px solid var(--fg);outline-offset:1px}
   /* jobs list */
   .jobs-h{display:flex;justify-content:space-between;align-items:baseline;
     margin-top:36px;border-bottom:1px solid var(--line);padding-bottom:8px}
   .jobs-h h2{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;margin:0}
   .jobs-h .ref{color:var(--mut);font-size:11px}
   .jobs{margin-top:4px}
-  .job{display:grid;grid-template-columns:96px 1fr auto auto;gap:12px;align-items:center;
-    padding:9px 0;border-bottom:1px solid var(--soft);cursor:pointer}
-  .job:hover{background:var(--soft)}
+  .job{display:grid;grid-template-columns:104px minmax(0,1fr) 140px 54px 54px;
+    gap:16px;align-items:center;padding:10px 0;border-bottom:1px solid var(--soft);cursor:pointer}
+  .job:hover{background:var(--fill)}
+  .jhead{cursor:default;color:var(--mut);font-size:10px;letter-spacing:.06em;
+    text-transform:uppercase;border-bottom:1px solid var(--line)}
+  .jhead:hover{background:transparent}
   .dot{display:inline-block;width:7px;height:7px;border:1px solid var(--line);margin-right:6px;
     vertical-align:middle}
   .dot.on{background:var(--fg)}
@@ -43,30 +55,43 @@
   .st{font-size:11px;white-space:nowrap;text-transform:capitalize}
   .q{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
   .pg{color:var(--mut);font-size:11px;white-space:nowrap;text-align:right}
-  .dl{font-size:11px;border:1px solid var(--line);padding:2px 8px;text-decoration:none;white-space:nowrap}
-  .empty{color:var(--mut);font-size:12px;padding:14px 0}
+  .bar{text-align:right}
+  .dl{font-size:11px;border:1px solid var(--line);padding:2px 8px;text-decoration:none;white-space:nowrap;text-align:center}
+  .empty{color:var(--mut);font-size:12px;padding:20px 0}
   .minibar{display:inline-block;width:54px;height:7px;border:1px solid var(--line);
-    position:relative;margin-left:8px;vertical-align:middle}
+    position:relative;vertical-align:middle}
   .minibar > i{position:absolute;left:0;top:0;bottom:0;background:var(--fg)}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>Dataroom</h1>
-  <p>Give a query. An autonomous Pi + self-hosted Qwen3.6 harness crawls, researches, and
-     builds a structured dataroom until it is comprehensive. Async — live dashboard + zip.</p>
+  <p class="lede">Give a query. An autonomous harness crawls, researches, and assembles a
+     structured dataroom until it is comprehensive.</p>
+  <p class="sub">Runs async. Watch it live, download the result as a zip.
+     Pi orchestration, self-hosted Qwen3.6.</p>
+
+  <div class="sec-h"><h2>New research</h2></div>
   <textarea id="q" placeholder="e.g. Competitive landscape of self-hosted small embedding models in 2026"></textarea>
-  <div class="ctl">
+
+  <div class="field">
+    <label class="lbl" for="budget">Target files</label>
+    <div class="fieldrow">
+      <input type="number" id="budget" value="100" min="1" step="10">
+      <span class="hint">Minimum sourced files before the run may stop. It keeps going past this until the dataroom is comprehensive. Not a cap.</span>
+    </div>
+  </div>
+
+  <div class="actions">
     <button class="btn" id="go">Start research</button>
-    <label title="The dataroom must reach this many substantive, sourced files before the run is allowed to stop (the outcome floor). Time / turn caps are only safety backstops.">budget&nbsp;<input type="number" id="budget" value="100" min="1" step="10">&nbsp;files</label>
   </div>
   <div class="out" id="out"></div>
 
   <div class="jobs-h">
     <h2>Jobs</h2>
-    <span class="ref" id="ref">—</span>
+    <span class="ref" id="ref">idle</span>
   </div>
-  <div class="jobs" id="jobs"><div class="empty">loading…</div></div>
+  <div class="jobs" id="jobs"><div class="empty">Loading jobs<span class="blink">…</span></div></div>
 </div>
 
 <script>
@@ -107,7 +132,7 @@ function progressText(j){
   if(j.status==="queued")return "queued";
   if(j.status==="running"){
     let t=`${sub}/${min} files`;
-    if(pr.total>0)t+=` · ${pr.done}/${pr.total} q`;
+    if(pr.total>0)t+=` · ${pr.done}/${pr.total} queries`;
     return t;
   }
   if(j.status==="done")return `done · ${fc} files`;
@@ -129,18 +154,23 @@ async function loadJobs(){
     if(!r.ok)throw 0;
     const d=await r.json();
     const jobs=d.jobs||[];
-    if(!jobs.length){$("jobs").innerHTML='<div class="empty">no jobs yet — submit a query above.</div>';}
+    if(!jobs.length){$("jobs").innerHTML='<div class="empty">No jobs yet. Submit a query above to start one.</div>';}
     else{
-      $("jobs").innerHTML=jobs.map(j=>`
-        <div class="job" onclick="location.href='/jobs/${j.job_id}/dashboard'">
+      const head=`
+        <div class="job jhead">
+          <span>Status</span><span>Query</span><span class="pg">Files</span><span></span><span></span>
+        </div>`;
+      $("jobs").innerHTML=head+jobs.map(j=>`
+        <div class="job" aria-label="${esc(j.query)||"(no query)"}" onclick="location.href='/jobs/${j.job_id}/dashboard'">
           <span class="st">${dotFor(j.status)}${esc(j.status)}</span>
           <span class="q" title="${esc(j.query)}">${esc(j.query)||"(no query)"}</span>
-          <span class="pg">${esc(progressText(j))}${(j.status==="running")?miniBar(j):""}</span>
+          <span class="pg">${esc(progressText(j))}</span>
+          <span class="bar">${(j.status==="running")?miniBar(j):""}</span>
           <a class="dl" href="/jobs/${j.job_id}/snapshot" onclick="event.stopPropagation()">zip</a>
         </div>`).join("");
     }
     $("ref").textContent="updated "+new Date().toLocaleTimeString();
-  }catch(e){ $("ref").textContent="(reconnecting…)"; }
+  }catch(e){ $("ref").textContent="reconnecting…"; }
 }
 loadJobs();setInterval(loadJobs,4000);
 </script>
