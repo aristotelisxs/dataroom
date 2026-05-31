@@ -43,6 +43,9 @@ def write_pi_config(agent_dir: Path, llama_url: str, jina_key: str, index_url: s
     # turns become an LLM summary. We scale reserve/keep with the window so we never
     # overflow and don't compact prematurely.
     ctx = int(os.environ.get("CONTEXT_WINDOW", os.environ.get("CTX_SIZE", "131072")))
+    # Agent-facing model id (must agree between models.json and settings.json below).
+    # Free label for llama.cpp's OpenAI endpoint; default qwen3.6 reproduces today exactly.
+    model_id = os.environ.get("MODEL_ID", "qwen3.6")
     max_tokens = 8192
     reserve = max(max_tokens + 2048, ctx // 8)   # >= maxTokens, scales with window
     keep_recent = max(16000, ctx // 3)           # healthy recent window survives compaction
@@ -54,13 +57,13 @@ def write_pi_config(agent_dir: Path, llama_url: str, jina_key: str, index_url: s
                 "api": "openai-completions",
                 "apiKey": "sk-local",
                 "compat": {"supportsDeveloperRole": False, "supportsReasoningEffort": False},
-                "models": [{"id": "qwen3.6", "contextWindow": ctx, "maxTokens": max_tokens}],
+                "models": [{"id": model_id, "contextWindow": ctx, "maxTokens": max_tokens}],
             }
         }
     }, indent=2))
     (agent_dir / "settings.json").write_text(json.dumps({
         "defaultProvider": "local",
-        "defaultModel": "qwen3.6",
+        "defaultModel": model_id,
         "defaultThinkingLevel": "off",
         "enableInstallTelemetry": False,
         "compaction": {"enabled": True, "keepRecentTokens": keep_recent,

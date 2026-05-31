@@ -34,7 +34,7 @@ services:
     # factual dataroom. Re-add `--cache-reuse 256` only once the fix is confirmed in the pinned
     # image and verified by the numeric multi-turn smoke test in docs/DEPLOY.md.
     command: >
-      --model /models/Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf
+      --model /models/${MODEL_FILE:-Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf}
       --host 0.0.0.0
       --port 8080
       --metrics
@@ -45,12 +45,10 @@ services:
       --cache-type-v q8_0
       --no-mmap
       --threads 8
-      --spec-type draft-mtp
-      --spec-draft-n-max 3
-      --spec-draft-p-min 0.1
+      ${SPEC_ARGS:---spec-type draft-mtp --spec-draft-n-max 3 --spec-draft-p-min 0.1}
       --n-predict 8192
       --jinja
-      --chat-template-file /templates/chat_template.jinja
+      --chat-template-file ${CHAT_TEMPLATE_FILE:-/templates/chat_template.jinja}
       -fitt 512
 
   daas:

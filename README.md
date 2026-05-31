@@ -1,106 +1,142 @@
-# Dataroom-as-a-Service (DaaS)
+# Dataroom
 
-Give it a research query. It spins up an autonomous [Pi](https://pi.dev) harness that keeps
-researching the web until the dataroom is **comprehensive** (a measurable coverage floor — not
-a fixed time/turn cap), incrementally building a well-organized **dataroom** on disk.
+Give it a research query. An autonomous [Pi](https://pi.dev) agent driving a self-hosted Qwen3.6-35B-A3B keeps researching the web until the dataroom is comprehensive, building a well-organized dataroom on disk that you download as a `.zip`.
 
-- **Brain**: [Pi coding agent](https://pi.dev) (`@earendil-works/pi-coding-agent`) running headless.
-- **Default LLM**: self-hosted **Qwen3.6-35B-A3B** (the same model + MTP serving used by
-  [`ki-extractor`](https://github.com/hanxiao/ki-extractor)) on a single **L4 24GB** GPU via llama.cpp.
-- **Tools exposed to the agent** (no giant prompt — just expose tools and let it drive):
-  - **`jina` CLI** on PATH (search / read / rerank / embed / dedup / ...), driven from bash and
-    composable via pipes (`jina search Q | jina rerank R`, `cat urls.txt | jina read`,
-    `xargs -P 8` for parallel fan-out) so bulky intermediates stay out of the LLM context. No
-    Jina MCP / adapter — CLI-only is leaner and matches how the model actually researches
-  - **jina-embeddings-v5-nano** preloaded for the dataroom index (embed / semantic search / dedup),
-    with server-side reconciliation so it never silently drifts from disk
-  - `read` / `write` / `edit` / `bash` (Pi built-ins) — so it can also write code, verify, and plot
-- **Output**: when it stops, an async job returns a **`.zip` of the whole dataroom**.
-- **Live dashboard** (turbopuffer-style black/white): real-time context utilization, throughput,
-  tool-call distribution, **live activity feed**, **warnings/errors**, **progress-to-floor**, a
-  **stop-reason banner**, and the dataroom file tree. At `GET /jobs/{id}/dashboard`.
+```mermaid
+flowchart LR
+    user([User / curl / Web UI]) -->|POST /jobs query| api
 
-## Design philosophy
+    subgraph host["NVIDIA Docker host (single L4 24GB)"]
+        subgraph appc["container: daas-app (:8000, GPU)"]
+            api["FastAPI app.py<br/>/jobs /result /snapshot<br/>/file /stats /log /dashboard /health"]
+            orch["orchestrator<br/>run_dataroom.py<br/>floor + ceiling guard"]
+            pi["Pi coding agent<br/>pi --mode json --continue"]
+            jina["jina CLI on PATH<br/>search / read / rerank / embed"]
+            emb["v5-nano embedder<br/>EMBED_DEVICE=cuda ~0.5GB<br/>dataroom_index"]
+            disk[("/data/jobs/&lt;id&gt;/<br/>dataroom/ + meta + logs")]
+        end
 
-The agent is *not* micromanaged. We expose the jina CLI + an embedding-backed dataroom index
-and a one-page methodology skill, then let Qwen drive its own loop. Before adding anything
-to the dataroom it must `dataroom_index search` first to avoid duplicates and keep structure.
+        subgraph llamac["container: daas-llama (:8080, GPU)"]
+            llama["llama-server<br/>Qwen3.6-35B-A3B UD-Q3_K_XL<br/>+ MTP draft, ctx 131072"]
+        end
+    end
 
-```
-HTTP POST /jobs {query}                  async job (uuid)
-   -> orchestrator (run_dataroom.py)
-        loop:
-          pi --mode json --continue  (same per-cwd session)   <- autonomous Qwen turns
-          agent uses the jina CLI + dataroom_index + bash
-          until the coverage FLOOR is met (DONE is rejected before then),
-          or it saturates (diminishing returns), or a hard safety ceiling trips
-   -> zip dataroom/  ->  GET /jobs/{id}/result  (download .zip)
-```
+    jinacloud([Jina API<br/>jina.ai]):::ext
 
-Stopping is **outcome-first**: `DONE` is only honored once the dataroom holds enough
-substantive sourced files (`MIN_FILES`, default 100), all sub-questions are closed, and a
-`SUMMARY.md` exists. Turns/seconds/Jina-calls are only hard backstops. The reason it stopped
-is surfaced on the dashboard. See [`docs/DEPLOY.md`](docs/DEPLOY.md) and `.env.example`.
+    api -->|spawn thread + subprocess| orch
+    orch -->|loop turns| pi
+    pi -->|OpenAI-compat /v1<br/>LLAMA_URL| llama
+    pi -->|bash| jina
+    jina -->|JINA_API_KEY| jinacloud
+    pi -->|index / search / dedup| emb
+    pi -->|read / write / edit| disk
+    emb -.reconcile.- disk
+    orch -->|zip dataroom/| disk
+    disk -->|GET /result or /snapshot .zip| user
 
-Both containers use **prebuilt** base images (`pytorch/pytorch:*-runtime` for the app,
-`ghcr.io/ggml-org/llama.cpp:server-cuda` for the LLM, pinnable via `LLAMA_IMAGE`) so there is
-no torch/CUDA recompile.
-
-## Architecture (containers)
-
-```
-llama-server (:8080)   GPU   Qwen3.6-35B-A3B UD-Q3_K_XL + MTP draft, ctx 131072 (q8_0 KV)
-daas        (:8000)    GPU   FastAPI + Pi harness + v5-nano embedding (~0.5GB)
+    classDef ext fill:#eee,stroke:#999,stroke-dasharray:4 3;
 ```
 
-VRAM budget on L4 (24GB): Q3_K_XL weights ~17GB. Qwen3.6-35B-A3B is a **hybrid GDN+MoE**
-model — only **10 of 40 layers carry a per-token KV cache** (the other 30 are Gated DeltaNet
-layers keeping a small fixed recurrent state), so per-token KV is tiny: roughly `ctx*10.24KB`
-at q8_0, i.e. **~1.3GB at the full 131072 window** (not the multi-GB a dense 35B would need).
-Default `CTX_SIZE=131072` targets Qwen3.6's native window; the real headroom pressure is the
-GDN recurrent-state pool + compute buffers + the embedder, so **verify with `nvidia-smi` and
-lower `CTX_SIZE` only if it's tight.** The v5-nano embedder (~239M params, ~0.5GB) runs on the
-GPU by default (`EMBED_DEVICE=cuda`); set `EMBED_DEVICE=cpu` for zero VRAM contention.
+## 1. Overview
 
-The Pi context window, the dashboard's context-utilization bar, and Pi's built-in
-auto-compaction all key off the same `CTX_SIZE`, so they stay consistent automatically.
+Submit a query and an async job spins up a headless Pi coding agent backed by a self-hosted Qwen3.6-35B-A3B (llama.cpp). The agent runs its own research loop: `pi --mode json --continue` resumes the same per-cwd session across turns, and on each turn it searches, reads, reranks, and writes sourced files into a `dataroom/` directory on disk.
 
-## Reproducible deploy (single L4 GPU)
+- Autonomous loop: the agent is not micromanaged. It is handed tools and a one-page methodology, then drives itself - search, read, dedup, write, verify - until the work is done.
+- Outcome-based stopping: `DONE` is honored only once the dataroom holds enough substantive sourced files (`MIN_FILES`, default 100), all sub-questions are closed, and a `SUMMARY.md` exists. Turns / seconds / Jina-call caps are only hard backstops, and a premature `DONE` is rejected so the agent keeps going. The reason it stopped is surfaced on the dashboard.
+- jina CLI: the `jina` CLI is on PATH (search / read / rerank / embed / dedup), driven from bash and composable via pipes (`jina search Q | jina rerank R`, `cat urls.txt | jina read`, `xargs -P 8` for parallel fan-out) so bulky intermediates stay out of the LLM context. CLI-only - no MCP adapter.
+- Embedding dedup index: `jina-embeddings-v5-nano` is preloaded for the dataroom index (embed / semantic search / dedup), with server-side reconciliation so it never drifts from disk. The agent must search the index before adding anything, to avoid duplicates and keep structure.
+- Live dashboard: real-time context utilization, throughput, tool-call distribution, live activity feed, warnings/errors, progress-to-floor, a stop-reason banner, and the dataroom file tree, at `GET /jobs/{id}/dashboard`.
+
+## 2. Install
+
+Simplest path on an NVIDIA Docker host. `scripts/setup.sh` installs Docker and the NVIDIA container toolkit, downloads the model, builds both images, and brings the stack up.
 
 ```bash
-# 1. Create the GPU box (GCP L4, spot)
-bash scripts/create_instance.sh           # edit GCP_PROJECT/ZONE at top, or pass as env
+# 0. (optional) confirm the GPU is visible to the host first
+nvidia-smi
 
-# 2. On the box: one-shot setup (Docker + NVIDIA toolkit + model download + up)
+# 1. clone
 git clone https://github.com/hanxiao/dataroom-as-a-service.git
 cd dataroom-as-a-service
-cp .env.example .env && $EDITOR .env      # set JINA_API_KEY
+
+# 2. set ONLY the Jina key (replace jina_your_real_key)
+cp .env.example .env
+sed -i 's/^JINA_API_KEY=.*/JINA_API_KEY=jina_your_real_key/' .env
+
+# 3. one-shot: Docker + NVIDIA toolkit + ~17GB model download + build + up + health wait
 bash scripts/setup.sh
-
-# 3. Submit a job
-curl -s -X POST localhost:8000/jobs -H 'content-type: application/json' \
-  -d '{"query":"Competitive landscape of self-hosted small embedding models in 2026"}'
-# -> {"job_id":"...."}
-
-# 4. Watch the live dashboard (or poll), then download the zip
-open http://<host>:8000/jobs/<job_id>/dashboard
-curl -s localhost:8000/jobs/<job_id>          # raw status
-curl -s -OJ localhost:8000/jobs/<job_id>/result
 ```
 
-There is also a minimal submit page at `GET /` and a JSON stats feed at `GET /jobs/{id}/stats`.
+Three steps: clone, set key, `bash scripts/setup.sh`. When it finishes it prints the API URL. The only value you must set is `JINA_API_KEY`; everything else in `.env.example` ships with working defaults.
 
-See [`docs/DEPLOY.md`](docs/DEPLOY.md) for the full reproducible walkthrough.
+Prereqs:
+- An NVIDIA GPU with the driver installed (`nvidia-smi` must work) and the `nvidia-container-toolkit`. `setup.sh` installs the toolkit on Debian/Ubuntu hosts; on RHEL-family hosts install it yourself first. Both containers need the GPU - the app container also uses it for the embedder (`EMBED_DEVICE=cuda`).
+- A Jina API key: https://jina.ai/api-dashboard/
+- Disk for a ~17GB model download plus the CUDA + pytorch base images and job data under `./data`. The model download alone can take several minutes on a slow link; it resumes from the Hugging Face cache if interrupted.
+
+By default `llama-server` serves `Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf` (repo `unsloth/Qwen3.6-35B-A3B-MTP-GGUF`) with MTP draft flags, and the agent model id is `qwen3.6`.
+
+### Switching the model
+
+With nothing set, the behavior is byte-for-byte today's default. To point the stack at a different GGUF, set these in `.env` (the defaults shown reproduce today exactly):
+
+| Env var | Default | Role |
+| --- | --- | --- |
+| `MODEL_FILE` | `Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf` | GGUF filename: what `setup.sh` downloads AND what `llama-server --model` serves (now unified). |
+| `MODEL_REPO` | `unsloth/Qwen3.6-35B-A3B-MTP-GGUF` | Hugging Face repo `setup.sh` pulls `MODEL_FILE` from. |
+| `MODEL_ID` | `qwen3.6` | Agent-facing model id (Pi `models.json` / `defaultModel`). A free label; the served id over llama.cpp's OpenAI endpoint is arbitrary. |
+| `CHAT_TEMPLATE_FILE` | `/templates/chat_template.jinja` | Jinja chat template inside the llama-server container. |
+| `SPEC_ARGS` | `--spec-type draft-mtp --spec-draft-n-max 3 --spec-draft-p-min 0.1` | MTP / speculative-draft flags appended to `llama-server`. |
+
+Non-Qwen caveat: switching to a non-Qwen GGUF is not just a filename swap. The bundled chat template is Qwen3.6-specific - point `CHAT_TEMPLATE_FILE` at the new model's Jinja template (a wrong template silently corrupts tool-calling), or drop the flag to use the GGUF's embedded template. `--spec-type draft-mtp` needs a GGUF that ships an MTP draft head (the `...-MTP-GGUF` repo does); for a plain GGUF set `SPEC_ARGS=` (empty). The `CTX_SIZE` default of 131072 is tuned to Qwen3.6's hybrid GDN+MoE KV math; a dense model of similar size uses far more KV per token, so lower `CTX_SIZE` or it may OOM on the L4. Re-measure VRAM with `nvidia-smi` for any other weights. See `docs/DEPLOY.md` for the deeper reproducibility detail.
+
+## 3. API
+
+Once the stack is up, the API is on port 8000 (open, no auth). `{JOB}` is the 12-hex id returned by `POST /jobs`.
+
+```bash
+# submit a job -> {"job_id":"<12hex>","status":"queued"}
+curl -s -X POST localhost:8000/jobs -H 'content-type: application/json' \
+  -d '{"query":"Competitive landscape of self-hosted small embedding models in 2026"}'
+# optionally cap work: -d '{"query":"...","max_turns":50,"max_seconds":3600}'
+
+JOB=abc123def456
+
+# list all jobs (live + on-disk), newest first
+curl -s localhost:8000/jobs
+
+# single job status
+curl -s localhost:8000/jobs/$JOB
+
+# per-job metrics feed (drives the dashboard)
+curl -s localhost:8000/jobs/$JOB/stats
+
+# tail of the Pi agent log (last 8000 chars)
+curl -s localhost:8000/jobs/$JOB/log
+
+# download the dataroom AS-IT-IS-NOW (works mid-run)
+curl -s -OJ localhost:8000/jobs/$JOB/snapshot
+
+# download the FINAL dataroom zip (409 until the job stops)
+curl -s -OJ localhost:8000/jobs/$JOB/result
+
+# read one dataroom file (path is relative to the job's dataroom/ dir)
+curl -s 'localhost:8000/jobs/'$JOB'/file?path=SUMMARY.md'
+
+# open the live dashboard in a browser
+open http://localhost:8000/jobs/$JOB/dashboard
+```
+
+There is also a minimal submit page at `GET /` and a liveness probe at `GET /health` (`{"ok":true}`).
 
 ## Local dev (no GPU)
 
-Point the agent at any OpenAI-compatible endpoint (or Qwen demo box) via `LLAMA_URL`,
-then run the harness directly:
+Point the agent at any OpenAI-compatible endpoint (or a remote Qwen box) via `LLAMA_URL`, then run the harness directly:
 
 ```bash
 uv venv && uv pip install -r server/requirements.txt
 JINA_API_KEY=... LLAMA_URL=http://<host>:8080 \
-  python -m server.run_dataroom --query "your query" --out ./out
+  uv run python -m server.run_dataroom --query "your query" --out ./out
 ```
 
 ## License
