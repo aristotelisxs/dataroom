@@ -111,7 +111,7 @@
     <div class="cell">
       <div class="k">Context utilization</div>
       <div class="big"><span id="ctxpct">0</span>%</div>
-      <div class="sub"><span id="ctxtok">0</span> / <span id="ctxwin">0</span> tokens</div>
+      <div class="sub"><span id="ctxtok">0</span> / <span id="ctxwin">0</span> tokens · <span id="cmp">0</span> compactions</div>
       <div class="bar" id="ctxbar"><i></i></div>
     </div>
     <div class="cell">
@@ -122,7 +122,7 @@
     <div class="cell">
       <div class="k">Tool calls</div>
       <div class="big" id="toolN">0</div>
-      <div class="sub"><span id="turns">0</span> agent turns · <span id="subfiles">0</span>/<span id="minfiles">0</span> sourced files</div>
+      <div class="sub"><span id="turns">0</span> turns · <span id="steps">0</span> steps · <span id="subfiles">0</span>/<span id="minfiles">0</span> files</div>
     </div>
     <div class="cell">
       <div class="k">Dataroom size</div>
@@ -293,6 +293,8 @@ async function tick(){
 
     $("toolN").textContent=d.tool_calls||0;
     $("turns").textContent=d.turns||0;
+    $("steps").textContent=d.steps||0;
+    $("cmp").textContent=d.compactions||0;
     const dr=d.dataroom||{};
     $("size").textContent=human(dr.size_bytes||0);
     $("files").textContent=dr.file_count||0;

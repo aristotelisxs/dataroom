@@ -262,13 +262,23 @@ def parse_pi_log(log_path: Path, job_dir: Path) -> dict:
     tool_counts: dict = {}
     tool_calls = 0
     last_usage = None
-    turns = 0
+    turns = 0           # orchestrator re-invocations of pi (agent_start)
+    steps = 0           # pi's internal agent-loop iterations (turn_start)
+    compactions = 0     # times pi auto-compacted its own context (compaction_start)
     recent = []     # ring buffer of recent activity
     errors = []     # failed tool calls
     for ev in _iter_events(log_path):
                 t = ev.get("type")
                 if t == "agent_start":
                     turns += 1
+                elif t == "turn_start":
+                    steps += 1
+                elif t == "compaction_start":
+                    compactions += 1
+                    recent.append({"turn": turns, "tool": "compaction",
+                                   "text": f"context compacted (#{compactions})"})
+                    if len(recent) > 14:
+                        recent.pop(0)
                 elif t == "tool_execution_start":
                     name = ev.get("toolName") or "unknown"
                     args = ev.get("args")
@@ -313,6 +323,8 @@ def parse_pi_log(log_path: Path, job_dir: Path) -> dict:
         "tool_calls": tool_calls,
         "tool_distribution": dict(sorted(tool_counts.items(), key=lambda kv: -kv[1])),
         "turns": turns,
+        "steps": steps,
+        "compactions": compactions,
         "usage": last_usage or {},
         "recent": recent,
         "errors": errors,
