@@ -16,7 +16,11 @@ from fastapi import FastAPI, Request
 import uvicorn
 
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
-os.environ["CUDA_VISIBLE_DEVICES"] = ""  # CPU-only embedder; keep VRAM for the LLM
+
+# v5-nano is ~212M params (<1GB VRAM in fp16). The L4 has ~3GB headroom after
+# Qwen Q3 (~17GB) + KV (~4GB), so GPU is the default for speed. Set EMBED_DEVICE=cpu
+# to fall back to CPU (zero VRAM contention) if you raise the LLM ctx/parallel.
+EMBED_DEVICE = os.environ.get("EMBED_DEVICE", "cuda")
 
 DATAROOM = os.environ.get("DATAROOM_DIR", "dataroom")
 INDEX_PATH = os.path.join(DATAROOM, ".index.npz")
@@ -34,7 +38,17 @@ def model():
     global _model
     if _model is None:
         from sentence_transformers import SentenceTransformer
-        _model = SentenceTransformer(MODEL_NAME, device="cpu", trust_remote_code=True)
+        dev = EMBED_DEVICE
+        if dev.startswith("cuda"):
+            try:
+                import torch
+                if not torch.cuda.is_available():
+                    print("[index] CUDA not available, falling back to CPU")
+                    dev = "cpu"
+            except Exception:
+                dev = "cpu"
+        print(f"[index] loading {MODEL_NAME} on {dev}")
+        _model = SentenceTransformer(MODEL_NAME, device=dev, trust_remote_code=True)
     return _model
 
 

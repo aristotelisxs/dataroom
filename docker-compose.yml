@@ -46,8 +46,15 @@ services:
       - LLAMA_URL=http://llama-server:8080
       - JOBS_DIR=/data/jobs
       - CONTEXT_WINDOW=16384       # match llama-server --ctx-size (dashboard context bar)
-      - CUDA_VISIBLE_DEVICES=          # embedder stays on CPU; no VRAM contention
+      - EMBED_DEVICE=cuda          # v5-nano on GPU (~0.5GB) for speed; set cpu to avoid VRAM use
       - TOKENIZERS_PARALLELISM=false
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     volumes:
       - ./data:/data
     depends_on:

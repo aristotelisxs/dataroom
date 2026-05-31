@@ -39,8 +39,10 @@ daas        (:8000)    CPU   FastAPI + Pi harness + v5-nano embedding (CUDA hidd
 ```
 
 VRAM budget on L4 (24GB): Q3_K_XL weights ~17GB + KV cache (ctx 16384, parallel 1, flash-attn)
-~4GB, headroom kept ~2-3GB so it does not OOM. The embedding model runs **CPU-only**
-(`CUDA_VISIBLE_DEVICES=`) exactly like ki-extractor, so it never competes for VRAM.
+~4GB. The v5-nano embedder is tiny (~212M params, <1GB VRAM) and runs **on the GPU by
+default** (`EMBED_DEVICE=cuda`) for speed, sharing the L4 — total ~22GB, still under 24GB.
+If you raise the LLM `--ctx-size`/`--parallel` and get tight, set `EMBED_DEVICE=cpu` to move
+the embedder off the GPU (zero VRAM contention, like ki-extractor).
 
 ## Reproducible deploy (single L4 GPU)
 

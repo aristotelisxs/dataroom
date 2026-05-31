@@ -65,7 +65,8 @@ def boot_index(job_dir: Path, index_port: int) -> subprocess.Popen:
     env = dict(os.environ)
     env["DATAROOM_DIR"] = str(job_dir / "dataroom")
     env["INDEX_PORT"] = str(index_port)
-    env["CUDA_VISIBLE_DEVICES"] = ""  # CPU embedder
+    # EMBED_DEVICE (default cuda) is inherited from the container env; v5-nano shares
+    # the L4 with the LLM. Set EMBED_DEVICE=cpu to avoid VRAM contention if needed.
     return subprocess.Popen(
         [sys.executable, str(HERE / "index_service.py")],
         env=env, stdout=open(job_dir / "index.log", "a"),

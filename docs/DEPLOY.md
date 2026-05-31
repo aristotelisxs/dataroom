@@ -43,11 +43,12 @@ curl -s -OJ localhost:8000/jobs/$JOB/result
 
 ## VRAM / OOM notes (L4 24GB)
 - Q3_K_XL weights ~17GB. KV cache at `--ctx-size 16384 --parallel 1 --flash-attn 1` ~4GB.
-  Total ~21GB, leaving ~2-3GB headroom. Do **not** raise `--parallel` or `--ctx-size`
-  without re-checking `nvidia-smi`.
-- The embedder (`v5-nano`) and FastAPI run in the `daas` container with
-  `CUDA_VISIBLE_DEVICES=` → CPU only → zero VRAM contention with the LLM.
-- If you bump context for very large datarooms, drop `n-predict` or use a smaller quant.
+- The `v5-nano` embedder runs on the GPU by default (`EMBED_DEVICE=cuda`, ~0.5GB fp16),
+  sharing the L4 with the LLM → total ~22GB, ~2GB headroom. The `daas` container is granted
+  GPU access in `docker-compose.yml`.
+- Do **not** raise `--parallel` or `--ctx-size` without re-checking `nvidia-smi`. If it gets
+  tight, set `EMBED_DEVICE=cpu` on the `daas` service to move the embedder off the GPU (zero
+  VRAM contention), or drop `n-predict`/use a smaller quant.
 
 ## How the autonomy works
 - Per job, the orchestrator writes an isolated Pi agent dir (`PI_CODING_AGENT_DIR`) with:
