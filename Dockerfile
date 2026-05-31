@@ -11,7 +11,7 @@ ENV DEBIAN_FRONTEND=noninteractive PIP_NO_CACHE_DIR=1
 
 # Node 22 (for Pi) + git. torch/CUDA already in the base, so no heavy compile here.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl ca-certificates git gnupg \
+        curl ca-certificates git gnupg bc \
     && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*

@@ -68,20 +68,28 @@ def model():
 
 
 def _encode(texts, role: str) -> np.ndarray:
-    """Encode with the retrieval adapter and the role-specific prompt (query vs passage).
+    """Encode with the retrieval adapter and the role-specific prompt (query vs document).
 
-    jina-v5 selects the prompt via `prompt_name`; older ST builds may not accept it, so we
-    degrade gracefully to a plain retrieval encode rather than crash.
+    jina-v5 keys its retrieval prompts 'query' / 'document'. We probe the model's actual
+    configured prompt names and pick the right one; older/odd builds that lack prompt_name (or
+    name it differently) degrade gracefully to a plain encode rather than 500 the index.
+    Catch ValueError/KeyError too -- not just TypeError -- so a bad prompt_name never crashes.
     """
     m = model()
-    prompt_name = "query" if role == "query" else "passage"
-    for kwargs in ({"task": EMBED_TASK, "prompt_name": prompt_name},
-                   {"task": EMBED_TASK, "prompt_name": role},   # some builds name it 'document'
-                   {"task": EMBED_TASK}):
+    # candidate prompt names for this role, best-first; filtered to what the model actually has
+    wants = ["query"] if role == "query" else ["document", "passage"]
+    available = set((getattr(m, "prompts", None) or {}).keys())
+    names = [n for n in wants if not available or n in available] or wants[:1]
+    attempts = []
+    for n in names:
+        attempts.append({"task": EMBED_TASK, "prompt_name": n})
+        attempts.append({"prompt_name": n})
+    attempts.append({"task": EMBED_TASK})
+    for kwargs in attempts:
         try:
             e = m.encode(texts, normalize_embeddings=True, **kwargs)
             return np.asarray(e, dtype=np.float32)
-        except TypeError:
+        except (TypeError, ValueError, KeyError):
             continue
     e = m.encode(texts, normalize_embeddings=True)
     return np.asarray(e, dtype=np.float32)
