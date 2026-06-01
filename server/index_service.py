@@ -24,9 +24,14 @@ import uvicorn
 
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
-# v5-nano is ~239M params (<1GB VRAM in fp16). cuda is the default for speed (shares the
-# L4); set EMBED_DEVICE=cpu for zero VRAM contention if you raise the LLM ctx/parallel.
-EMBED_DEVICE = os.environ.get("EMBED_DEVICE", "cuda")
+# v5-nano is ~239M params. EMBED_DEVICE=cpu (default) keeps it off the L4, which the ~22GB Q4
+# LLM nearly fills. NOTE: jina-v5 is a base model + per-task LoRA adapters; peft loads those
+# adapters onto CUDA whenever a GPU is *visible* (device=cuda), OOMing the full L4 even with the
+# base on CPU. So on CPU we hide the GPU entirely here -- BEFORE torch is imported (it is imported
+# lazily in model()) -- so torch.cuda.is_available() is False and base + adapters all load on CPU.
+EMBED_DEVICE = os.environ.get("EMBED_DEVICE", "cpu")
+if EMBED_DEVICE.startswith("cpu"):
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 DATAROOM = os.path.abspath(os.environ.get("DATAROOM_DIR", "dataroom"))
 PARENT = os.path.dirname(DATAROOM)
