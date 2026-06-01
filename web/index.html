@@ -47,6 +47,7 @@
   .fieldrow{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
   .fieldrow input{width:80px;background:var(--bg);color:var(--fg);
     border:1px solid var(--line);padding:7px 8px;font:inherit}
+  .unit{color:var(--mut);font-size:12px}
   /* help badge: the hint shows as a native tooltip on hover/focus of the "?" */
   .help{position:relative;display:inline-flex;align-items:center;justify-content:center;
     width:14px;height:14px;border:1px solid var(--mut);border-radius:50%;font-size:9px;line-height:1;
@@ -119,9 +120,10 @@
   <textarea id="q" placeholder="e.g. Competitive landscape of self-hosted small embedding models in 2026"></textarea>
 
   <div class="field">
-    <label class="lbl" for="budget">Target files <span class="help" tabindex="0" role="button" aria-label="What does target files mean?">?<span class="tip">Minimum sourced files before the run may stop. It keeps going past this until the dataroom is comprehensive. Not a cap.</span></span></label>
+    <label class="lbl" for="budget">Time budget <span class="help" tabindex="0" role="button" aria-label="What is the time budget?">?<span class="tip">How long the agent works on this dataroom - like time-boxing an intern. It stops early if it judges the topic exhausted; otherwise it hands over what it has when the time is up. Bigger budget = more thorough.</span></span></label>
     <div class="fieldrow">
-      <input type="number" id="budget" value="100" min="1" step="10">
+      <input type="number" id="budget" value="30" min="1" step="5">
+      <span class="unit">minutes</span>
     </div>
   </div>
 
@@ -148,9 +150,9 @@ go.onclick=async()=>{
   if(!query){$("out").textContent="enter a research query first.";return;}
   go.disabled=true;$("out").textContent="submitting…";
   try{
-    const budget=parseInt($("budget").value,10);
+    const mins=parseInt($("budget").value,10);
     const body={query};
-    if(budget>0)body.min_files=budget;
+    if(mins>0)body.max_seconds=mins*60;   // time box: agent works up to this long, then hands over
     const r=await fetch("/jobs",{method:"POST",headers:{"content-type":"application/json"},
       body:JSON.stringify(body)});
     if(!r.ok){throw new Error("HTTP "+r.status+" "+(await r.text()).slice(0,200));}
