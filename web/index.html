@@ -157,9 +157,11 @@ function dotFor(s){
   return '<span class="dot"></span>';
 }
 function progressText(j){
-  const fc=j.file_count||0, sub=j.substantive_files||0, min=j.min_files||100;
-  if(j.status==="running")return `${sub}/${min} files`;
-  if(j.status==="done"||j.status==="stopped")return `${fc} files`;
+  // Show the real-time total file count (what the detail page shows), not the substantive-floor
+  // count - substantive_files only counts topics/+reports/, so it reads 0 during sourcing even
+  // though files exist. The minibar still tracks progress-to-floor separately.
+  const fc=j.file_count||0;
+  if(["running","done","stopped"].includes(j.status))return `${fc} files`;
   return j.status;   // queued / paused / pausing / cancelled / failed / interrupted
 }
 function miniBar(j){
