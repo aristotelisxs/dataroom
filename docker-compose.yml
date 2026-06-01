@@ -21,12 +21,15 @@ services:
               count: all
               capabilities: [gpu]
     restart: unless-stopped
-    # Qwen3.6-35B-A3B UD-Q3_K_XL + MTP draft on a single L4 24GB.
-    # Q3_K_XL weights ~17GB. This is a HYBRID GDN+MoE model: only 10 of 40 layers carry a
-    # per-token KV cache (the other 30 keep a small fixed recurrent state), so per-token KV is
-    # tiny -- ~ctx*10.24KB at q8_0, i.e. ~1.3GB at the full 131072 window, not the multi-GB a
-    # dense 35B would need. Real headroom is dominated by the GDN recurrent-state pool, compute
-    # buffers, and the v5-nano embedder. Measure with nvidia-smi; lower CTX_SIZE if it OOMs.
+    # Qwen3.6-35B-A3B MTP UD-Q4_K_XL on a single L4 24GB. Params follow the reference MTP tune
+    # (github.com/hanxiao/Qwen3.6-35B-A3B-MTP-L4): q4_0 KV, --spec-draft-n-max 2 (no p-min),
+    # -ub 256 -b 2048, mmap ON + -ngl auto-fit (no --no-mmap, no -ngl 999 -- forcing all layers
+    # to GPU OOMs once MTP + KV load). Q4_K_XL weights ~22GB nearly fill the card.
+    # This is a HYBRID GDN+MoE model: only 10 of 40 layers carry a per-token KV cache (the rest
+    # keep a small fixed recurrent state), so per-token KV is tiny (~0.65GB at q4_0/131072).
+    # Real headroom is dominated by the weights, the GDN recurrent-state pool, compute buffers,
+    # and the v5-nano embedder (~0.5GB). Measured: ~22.2GB used at full 131072 ctx, no OOM.
+    # Lower CTX_SIZE (98304/65536) if nvidia-smi is tight.
     #
     # NOTE: --cache-reuse is intentionally OMITTED from the command below. This hybrid (Gated
     # DeltaNet) model has documented recurrent-state cache drift that can silently corrupt
@@ -34,18 +37,19 @@ services:
     # factual dataroom. Re-add `--cache-reuse 256` only once the fix is confirmed in the pinned
     # image and verified by the numeric multi-turn smoke test in docs/DEPLOY.md.
     command: >
-      --model /models/${MODEL_FILE:-Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf}
+      --model /models/${MODEL_FILE:-Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf}
       --host 0.0.0.0
       --port 8080
       --metrics
       --ctx-size ${CTX_SIZE:-131072}
       --parallel 1
       --flash-attn 1
-      --cache-type-k q8_0
-      --cache-type-v q8_0
-      --no-mmap
+      --cache-type-k q4_0
+      --cache-type-v q4_0
       --threads 8
-      ${SPEC_ARGS:---spec-type draft-mtp --spec-draft-n-max 3 --spec-draft-p-min 0.1}
+      -ub 256
+      -b 2048
+      ${SPEC_ARGS:---spec-type draft-mtp --spec-draft-n-max 2}
       --n-predict 8192
       --jinja
       --chat-template-file ${CHAT_TEMPLATE_FILE:-/templates/chat_template.jinja}

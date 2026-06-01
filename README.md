@@ -43,7 +43,7 @@ cd dataroom-as-a-service
 cp .env.example .env
 sed -i 's/^JINA_API_KEY=.*/JINA_API_KEY=jina_your_real_key/' .env
 
-# 3. one-shot: Docker + NVIDIA toolkit + ~17GB model download + build + up + health wait
+# 3. one-shot: Docker + NVIDIA toolkit + ~22GB model download + build + up + health wait
 bash scripts/setup.sh
 ```
 
@@ -52,9 +52,9 @@ Three steps: clone, set key, `bash scripts/setup.sh`. When it finishes it prints
 Prereqs:
 - An NVIDIA GPU with the driver installed (`nvidia-smi` must work) and the `nvidia-container-toolkit`. `setup.sh` installs the toolkit on Debian/Ubuntu hosts; on RHEL-family hosts install it yourself first. Both containers need the GPU - the app container also uses it for the embedder (`EMBED_DEVICE=cuda`).
 - A Jina API key: https://jina.ai/api-dashboard/
-- Disk for a ~17GB model download plus the CUDA + pytorch base images and job data under `./data`. The model download alone can take several minutes on a slow link; it resumes from the Hugging Face cache if interrupted.
+- Disk for a ~22GB model download plus the CUDA + pytorch base images and job data under `./data`. The model download alone can take several minutes on a slow link; it resumes from the Hugging Face cache if interrupted.
 
-By default `llama-server` serves `Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf` (repo `unsloth/Qwen3.6-35B-A3B-MTP-GGUF`) with MTP draft flags, and the agent model id is `qwen3.6`.
+By default `llama-server` serves `Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf` (repo `unsloth/Qwen3.6-35B-A3B-MTP-GGUF`) with MTP draft flags, and the agent model id is `qwen3.6`.
 
 ### Switching the model
 
@@ -62,11 +62,11 @@ With nothing set, the behavior is byte-for-byte today's default. To point the st
 
 | Env var | Default | Role |
 | --- | --- | --- |
-| `MODEL_FILE` | `Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf` | GGUF filename: what `setup.sh` downloads AND what `llama-server --model` serves (now unified). |
+| `MODEL_FILE` | `Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf` | GGUF filename: what `setup.sh` downloads AND what `llama-server --model` serves (now unified). |
 | `MODEL_REPO` | `unsloth/Qwen3.6-35B-A3B-MTP-GGUF` | Hugging Face repo `setup.sh` pulls `MODEL_FILE` from. |
 | `MODEL_ID` | `qwen3.6` | Agent-facing model id (Pi `models.json` / `defaultModel`). A free label; the served id over llama.cpp's OpenAI endpoint is arbitrary. |
 | `CHAT_TEMPLATE_FILE` | `/templates/chat_template.jinja` | Jinja chat template inside the llama-server container. |
-| `SPEC_ARGS` | `--spec-type draft-mtp --spec-draft-n-max 3 --spec-draft-p-min 0.1` | MTP / speculative-draft flags appended to `llama-server`. |
+| `SPEC_ARGS` | `--spec-type draft-mtp --spec-draft-n-max 2` | MTP / speculative-draft flags appended to `llama-server`. |
 
 Non-Qwen caveat: switching to a non-Qwen GGUF is not just a filename swap. The bundled chat template is Qwen3.6-specific - point `CHAT_TEMPLATE_FILE` at the new model's Jinja template (a wrong template silently corrupts tool-calling), or drop the flag to use the GGUF's embedded template. `--spec-type draft-mtp` needs a GGUF that ships an MTP draft head (the `...-MTP-GGUF` repo does); for a plain GGUF set `SPEC_ARGS=` (empty). The `CTX_SIZE` default of 131072 is tuned to Qwen3.6's hybrid GDN+MoE KV math; a dense model of similar size uses far more KV per token, so lower `CTX_SIZE` or it may OOM on the L4. Re-measure VRAM with `nvidia-smi` for any other weights. See `docs/DEPLOY.md` for the deeper reproducibility detail.
 
@@ -128,7 +128,7 @@ flowchart LR
         end
 
         subgraph llamac["container: daas-llama (:8080, GPU)"]
-            llama["llama-server<br/>Qwen3.6-35B-A3B UD-Q3_K_XL<br/>+ MTP draft, ctx 131072"]
+            llama["llama-server<br/>Qwen3.6-35B-A3B UD-Q4_K_XL<br/>+ MTP draft, ctx 131072"]
         end
     end
 

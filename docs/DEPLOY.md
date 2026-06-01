@@ -25,7 +25,7 @@ sed -i 's/^JINA_API_KEY=.*/JINA_API_KEY=jina_your_real_key/' .env
 ```bash
 bash scripts/setup.sh
 ```
-This downloads `Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf` (~17GB) into `models/`, builds the `daas`
+This downloads `Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf` (~22GB) into `models/`, builds the `daas`
 image (which pre-bakes `jina-embeddings-v5-text-nano`), and starts both containers.
 
 ## Switching the model
@@ -34,11 +34,11 @@ behind five env vars (set in `.env`); defaults shown reproduce today exactly.
 
 | Env var | Default | Role |
 | --- | --- | --- |
-| `MODEL_FILE` | `Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf` | GGUF filename, shared: what `setup.sh` downloads into `models/` AND what `docker-compose`'s `llama-server --model` serves. A switch keeps download and serve in sync. |
+| `MODEL_FILE` | `Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf` | GGUF filename, shared: what `setup.sh` downloads into `models/` AND what `docker-compose`'s `llama-server --model` serves. A switch keeps download and serve in sync. |
 | `MODEL_REPO` | `unsloth/Qwen3.6-35B-A3B-MTP-GGUF` | Hugging Face repo `setup.sh` pulls `MODEL_FILE` from. |
 | `MODEL_ID` | `qwen3.6` | Agent label written to Pi's `models.json` (model id) and `settings.json` (`defaultModel`). llama.cpp's OpenAI endpoint accepts any id, so this only has to be internally consistent; it never needs to match the GGUF. |
 | `CHAT_TEMPLATE_FILE` | `/templates/chat_template.jinja` | Path inside the llama-server container passed via `--chat-template-file`. |
-| `SPEC_ARGS` | `--spec-type draft-mtp --spec-draft-n-max 3 --spec-draft-p-min 0.1` | MTP / speculative-draft flags appended to the `llama-server` command, kept as one opaque string so the whole draft block drops or replaces atomically. |
+| `SPEC_ARGS` | `--spec-type draft-mtp --spec-draft-n-max 2` | MTP / speculative-draft flags appended to the `llama-server` command, kept as one opaque string so the whole draft block drops or replaces atomically. |
 
 Non-Qwen GGUF is not a pure filename swap:
 - Chat template: the bundled `/templates/chat_template.jinja` is Qwen3.6-specific. Point
@@ -51,7 +51,7 @@ Non-Qwen GGUF is not a pure filename swap:
 - Context: `CTX_SIZE` / `CONTEXT_WINDOW` default 131072 is tuned to Qwen3.6's hybrid GDN+MoE KV
   math (see below). A dense model of similar size uses far more KV per token - lower `CTX_SIZE`
   accordingly or it may OOM on the L4.
-- VRAM: the ~17GB / Q3_K_XL headroom analysis is Qwen-specific. Re-measure with `nvidia-smi`.
+- VRAM: the ~22GB / Q4_K_XL headroom analysis is Qwen-specific. Re-measure with `nvidia-smi`.
 
 ## 4. Use it
 ```bash
@@ -68,15 +68,16 @@ curl -s -OJ localhost:8000/jobs/$JOB/result
 ```
 
 ## VRAM / OOM notes (L4 24GB)
-- Q3_K_XL weights ~17GB. Qwen3.6-35B-A3B is **hybrid GDN+MoE**: only **10 of 40 layers carry a
-  per-token KV cache** (`full_attention_interval=4`); the other 30 are Gated DeltaNet layers
-  with a small fixed recurrent state. So per-token KV ≈ `ctx * 10 layers * 2 (K+V) * 256 head_dim
-  * 1 byte (q8_0)` ≈ `ctx * 10.24KB`: **~0.17GB at 16384, ~1.3GB at the full 131072 window**
-  (≈2x those for f16 KV). This is far smaller than a dense 35B's KV - do not size by dense rules.
+- Q4_K_XL weights ~22GB nearly fill the card. Qwen3.6-35B-A3B is **hybrid GDN+MoE**: only **10 of
+  40 layers carry a per-token KV cache** (`full_attention_interval=4`); the other 30 are Gated
+  DeltaNet layers with a small fixed recurrent state. So per-token KV ≈ `ctx * 10 layers * 2 (K+V)
+  * 256 head_dim * 0.5 byte (q4_0)` ≈ `ctx * 5.12KB`: **~0.08GB at 16384, ~0.65GB at the full
+  131072 window**. This is far smaller than a dense 35B's KV - do not size by dense rules; with Q4
+  the weights, not the KV, are what fill VRAM.
 - The `v5-nano` embedder runs on the GPU by default (`EMBED_DEVICE=cuda`, ~0.5GB), sharing the
-  L4. With weights ~17GB + KV ~1.3GB + embedder ~0.5GB you have comfortable headroom at 131072;
-  the real pressure is the GDN recurrent-state pool + compute buffers. **Always confirm with
-  `nvidia-smi`** rather than trusting any single number here.
+  L4. With weights ~22GB + KV ~0.65GB + embedder ~0.5GB it is **tight: measured ~22.2GB used at
+  131072, no OOM** but little spare. `-ngl` is left unset (auto-fit) with mmap on so light expert
+  layers can spill to CPU instead of OOMing. **Always confirm with `nvidia-smi`.**
 - If it gets tight, set `EMBED_DEVICE=cpu` (zero VRAM contention), lower `CTX_SIZE`, or use a
   smaller quant. Keep `CTX_SIZE` / `CONTEXT_WINDOW` / the dashboard denominator in sync (the
   default is 131072 everywhere).

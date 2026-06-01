@@ -66,7 +66,9 @@ def write_pi_config(agent_dir: Path, llama_url: str, jina_key: str, index_url: s
     (agent_dir / "settings.json").write_text(json.dumps({
         "defaultProvider": "local",
         "defaultModel": model_id,
-        "defaultThinkingLevel": "off",
+        # Thinking ON for best quality (reference MTP tune enables it). Generates reasoning
+        # tokens per cycle (more tokens, slower); set "medium"/"off" if throughput/ctx suffer.
+        "defaultThinkingLevel": "high",
         "enableInstallTelemetry": False,
         "compaction": {"enabled": True, "keepRecentTokens": keep_recent,
                        "reserveTokens": reserve},

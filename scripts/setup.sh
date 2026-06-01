@@ -7,9 +7,9 @@ cd "$(dirname "$0")/.."
 MODEL_REPO="${MODEL_REPO:-unsloth/Qwen3.6-35B-A3B-MTP-GGUF}"
 # MODEL_FILE is SHARED with docker-compose's --model: setup downloads models/$MODEL_FILE
 # and compose serves the same file, so a switch stays in sync. Keep these two in agreement.
-MODEL_FILE="${MODEL_FILE:-Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf}"
+MODEL_FILE="${MODEL_FILE:-Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf}"
 
-# --- Preflight: fail fast BEFORE the long install + 17GB download ----------------
+# --- Preflight: fail fast BEFORE the long install + 22GB download ----------------
 # The Jina API key powers the agent's web research (jina search / jina read). It is REQUIRED
 # (the local v5-nano embedder does NOT need it). Provide it by editing .env, or inline:
 #   JINA_API_KEY=jina_xxx bash scripts/setup.sh
@@ -48,10 +48,10 @@ if ! command -v nvidia-smi &>/dev/null || ! nvidia-smi &>/dev/null; then
   exit 1
 fi
 
-# Disk preflight: ~17GB model + several-GB images + job data. Warn under ~40GB free.
+# Disk preflight: ~22GB model + several-GB images + job data. Warn under ~40GB free.
 AVAIL_GB="$(df -P . | awk 'NR==2{print int($4/1024/1024)}')"
 if [ -n "$AVAIL_GB" ] && [ "$AVAIL_GB" -lt 40 ]; then
-  echo "WARNING: only ${AVAIL_GB}GB free here; the model (~17GB) + images + job data may not fit." >&2
+  echo "WARNING: only ${AVAIL_GB}GB free here; the model (~22GB) + images + job data may not fit." >&2
   echo "         Free space or use a larger disk before continuing." >&2
 fi
 
@@ -80,7 +80,7 @@ if ! dpkg -l | grep -q nvidia-container-toolkit; then
   sudo systemctl restart docker
 fi
 
-echo "=== Downloading model ($MODEL_FILE, ~17GB; this can take many minutes) ==="
+echo "=== Downloading model ($MODEL_FILE, ~22GB; this can take many minutes) ==="
 mkdir -p models data
 if [ ! -f "models/$MODEL_FILE" ]; then
   # Use uv to fetch huggingface-hub in an ephemeral env (no host-python pollution / no
@@ -101,7 +101,7 @@ fi
 echo "=== Building + starting services ==="
 sudo docker compose up -d --build
 
-echo "=== Waiting for llama-server (loads ~17GB from disk on first run) ==="
+echo "=== Waiting for llama-server (loads ~22GB from disk on first run) ==="
 llama_ready=
 for i in $(seq 1 90); do
   if curl -fsS http://localhost:8080/health >/dev/null 2>&1; then echo "llama-server ready"; llama_ready=1; break; fi
