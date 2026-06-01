@@ -133,7 +133,6 @@
     <a class="icon" href="/" title="Back to all jobs"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.5L5.5 8l4.5 4.5"/></svg></a>
     <a class="icon" id="dl" href="#" title="Download dataroom.zip"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.5v7"/><path d="M5 6.8l3 3 3-3"/><path d="M3.5 12.5h9"/></svg></a>
     <button class="icon" id="pauseBtn" style="display:none" title="pause"></button>
-    <button class="icon" id="cancelBtn" style="display:none" title="cancel"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
   </div>
 
   <div class="banner" id="banner"></div>
@@ -228,7 +227,6 @@ function ic(n){
 // job controls: pause<->resume toggle + cancel. Re-tick after so the label flips on confirmed status.
 async function post(path){try{await fetch(path,{method:"POST"});}catch(e){}tick();}
 $("pauseBtn").onclick=()=>{const act=$("pauseBtn").dataset.act==="resume"?"resume":"pause";post(`/jobs/${JOB}/${act}`);};
-$("cancelBtn").onclick=()=>{if(confirm("Cancel this job? This cannot be undone."))post(`/jobs/${JOB}/cancel`);};
 
 function human(b){
   if(b<1024)return b+" B";
@@ -310,8 +308,6 @@ const STOP={
   ceiling_cost:["stop","STOPPED — Jina-call budget ceiling reached (partial, downloadable)"],
   turn_timeout:["stop","STOPPED — a turn timed out"],
   error_index_boot:["err","ERROR — index sidecar failed to start"],
-  interrupted:["err","INTERRUPTED"],
-  cancelled:["stop","CANCELLED"],
   paused:["stop","PAUSED — resume from the homepage or the controls above"],
 };
 function setStatus(s,done){
@@ -432,12 +428,11 @@ async function tick(){
 
     // pause/resume/cancel for unfinished jobs (icon-only, title tooltips)
     const stt=d.job_status;
-    const pb=$("pauseBtn"), cb=$("cancelBtn");
+    const pb=$("pauseBtn");
     if(stt==="paused"){pb.style.display="";pb.innerHTML=ic("resume");pb.title="resume";pb.dataset.act="resume";pb.disabled=false;}
     else if(stt==="pausing"){pb.style.display="";pb.innerHTML=ic("pause");pb.title="pausing…";pb.dataset.act="pause";pb.disabled=true;}
     else if(stt==="running"||stt==="queued"){pb.style.display="";pb.innerHTML=ic("pause");pb.title="pause";pb.dataset.act="pause";pb.disabled=false;}
     else{pb.style.display="none";}
-    cb.style.display=["running","queued","pausing","paused"].includes(stt)?"":"none";
 
     $("ts").textContent=new Date().toLocaleTimeString();
   }catch(e){

@@ -3,8 +3,7 @@
 
 POST /jobs            {query}            -> {job_id}   (queued; a single worker runs jobs serially)
 POST /jobs/{id}/pause                     -> pause an unfinished job (queue advances to the next)
-POST /jobs/{id}/resume                    -> re-enqueue a paused job
-POST /jobs/{id}/cancel                    -> cancel an unfinished job (terminal)
+POST /jobs/{id}/resume                    -> re-enqueue a paused job (continues from on-disk dataroom)
 GET  /jobs/{id}                          -> {status, turns, ...}
 GET  /jobs/{id}/result                   -> final dataroom.zip (when status=done)
 GET  /jobs/{id}/snapshot                 -> dataroom-so-far.zip, zipped live (any time)
@@ -72,10 +71,8 @@ def _status_for(job_dir, rc=None) -> tuple:
             ctl = cf.read_text(errors="ignore").strip()
         except Exception:
             ctl = ""
-    if ctl == "pause":
+    if ctl in ("pause", "cancel"):   # one resumable state; 'cancel' is legacy
         return "paused", "paused"
-    if ctl == "cancel":
-        return "cancelled", "cancelled"
     rmeta = _run_meta(job_dir)
     sr = rmeta.get("stop_reason")
     if (job_dir / "dataroom.zip").exists():
@@ -102,8 +99,12 @@ def _load_meta(job_id: str) -> dict:
     if (job_dir / "dataroom.zip").exists():
         meta["status"], meta["stop_reason"] = _status_for(job_dir)
     elif meta.get("status") == "running":
-        # app restarted mid-run; the worker thread is gone -> mark interrupted
-        meta["status"] = "interrupted"
+        # app restarted mid-run; the worker thread is gone. Resumable: the recovery loop
+        # auto-re-queues these (auto-resume); shown as 'paused' until it picks back up.
+        meta["status"] = "paused"
+    # Legacy terminal-stop states collapse into the single resumable 'paused'.
+    if meta.get("status") in ("interrupted", "cancelled"):
+        meta["status"] = "paused"
     if not meta.get("query") and (job_dir / "query.txt").exists():
         meta["query"] = (job_dir / "query.txt").read_text(errors="ignore").strip()
     return meta
@@ -157,10 +158,8 @@ def _run_one(job_id: str):
         pass
     with _lock:
         _current["job_id"], _current["proc"] = None, None
-        if ctl == "pause":
+        if ctl in ("pause", "cancel"):   # one resumable state; 'cancel' is legacy
             _jobs[job_id]["status"], _jobs[job_id]["stop_reason"] = "paused", "paused"
-        elif ctl == "cancel":
-            _jobs[job_id]["status"], _jobs[job_id]["stop_reason"] = "cancelled", "cancelled"
         else:
             status, stop_reason = _status_for(job_dir, rc)
             _jobs[job_id]["status"], _jobs[job_id]["stop_reason"] = status, stop_reason
@@ -194,15 +193,24 @@ _worker_thread.start()
 
 
 def _recover_queue():
-    """On startup, re-enqueue jobs left 'queued' on disk by a previous app instance (the queue
-    is in-memory). Running jobs are reconciled to 'interrupted' by _load_meta, not re-run."""
+    """On startup, auto-resume jobs that were mid-flight (queued OR running, i.e. interrupted by
+    the restart) when the previous app instance stopped - the queue is in-memory. User-paused
+    jobs are left paused (manual resume); finished jobs (a terminal zip) are not re-run."""
     if not JOBS.exists():
         return
     for p in sorted(JOBS.iterdir()):
         if not p.is_dir():
             continue
-        m = _load_meta(p.name)
-        if m.get("status") == "queued":
+        mp = p / "meta.json"
+        raw = {}
+        if mp.exists():
+            try:
+                raw = json.loads(mp.read_text())
+            except Exception:
+                raw = {}
+        if raw.get("status") in ("queued", "running") and not (p / "dataroom.zip").exists():
+            m = _load_meta(p.name)          # full meta: query + budgets
+            m["status"] = "queued"
             with _cond:
                 _jobs[p.name] = m
                 if p.name not in _queue:
@@ -283,38 +291,14 @@ def resume(job_id: str):
     if st != "paused":
         raise HTTPException(409, f"cannot resume a job in state {st}")
     with _cond:
-        _jobs.setdefault(job_id, {}).update({"status": "queued", "stop_reason": None})
+        if job_id not in _jobs:
+            _jobs[job_id] = _load_meta(job_id)      # restore query + budgets after a restart
+        _jobs[job_id].update({"status": "queued", "stop_reason": None})
         if job_id not in _queue:
             _queue.append(job_id)
         _cond.notify_all()
     _save_meta(job_id)
     return {"status": "queued"}
-
-
-@app.post("/jobs/{job_id}/cancel")
-def cancel(job_id: str):
-    """Cancel an unfinished job (terminal). Queued/paused jobs just leave the queue; a running
-    job gets a 'cancel' flag plus SIGTERM to its process group for a prompt, clean stop."""
-    st = _cur_status(job_id)
-    if st not in ("queued", "running", "pausing", "paused"):
-        raise HTTPException(409, f"cannot cancel a job in state {st}")
-    if st in ("queued", "paused"):
-        with _cond:
-            _jobs.setdefault(job_id, {}).update({"status": "cancelled", "stop_reason": "cancelled"})
-            if job_id in _queue:
-                _queue.remove(job_id)
-        _save_meta(job_id)
-        return {"status": "cancelled"}
-    # running/pausing: flag it (authoritative for the final status) and signal for promptness.
-    (JOBS / job_id / "control").write_text("cancel")
-    with _lock:
-        proc = _current["proc"] if _current["job_id"] == job_id else None
-    if proc is not None:
-        try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-        except Exception:
-            pass
-    return {"status": "cancelling"}
 
 
 @app.get("/jobs")

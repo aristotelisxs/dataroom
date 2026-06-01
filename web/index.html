@@ -146,8 +146,6 @@ function controlsFor(j){
   if(s==="paused")h+=`<button class="icon" title="resume" onclick="event.stopPropagation();jpost('${id}','resume')">${ic("resume")}</button>`;
   else if(s==="running"||s==="queued")h+=`<button class="icon" title="pause" onclick="event.stopPropagation();jpost('${id}','pause')">${ic("pause")}</button>`;
   else if(s==="pausing")h+=`<button class="icon" title="pausing…" disabled>${ic("pause")}</button>`;
-  if(["running","queued","pausing","paused"].includes(s))
-    h+=`<button class="icon" title="cancel" onclick="event.stopPropagation();if(confirm('Cancel this job? This cannot be undone.'))jpost('${id}','cancel')">${ic("cancel")}</button>`;
   return h;
 }
 
@@ -162,7 +160,8 @@ function progressText(j){
   // though files exist. The minibar still tracks progress-to-floor separately.
   const fc=j.file_count||0;
   if(["running","done","stopped"].includes(j.status))return `${fc} files`;
-  return j.status;   // queued / paused / pausing / cancelled / failed / interrupted
+  if(j.status==="paused")return `paused · ${fc} files`;   // resumable; show banked work
+  return j.status;   // queued / failed
 }
 function miniBar(j){
   const sub=j.substantive_files||0, min=j.min_files||100;
