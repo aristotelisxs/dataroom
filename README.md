@@ -23,6 +23,11 @@ Everything runs locally on your own GPU: the model is self-hosted (llama.cpp), a
 
 ## How it works
 
+<p align="center">
+  <img src="assets/screenshot-home.png" width="800"
+       alt="Dataroom homepage: a query box and a live list of jobs with status, file counts, and pause/resume/download controls" />
+</p>
+
 Submit a query and an async job spins up a headless Pi coding agent backed by a self-hosted Qwen3.6-35B-A3B (llama.cpp). The agent runs its own research loop: `pi --mode json --continue` resumes the same per-cwd session across turns, and on each turn it searches, reads, reranks, and writes sourced files into a `dataroom/` directory on disk.
 
 - Autonomous loop: the agent is not micromanaged. It is handed tools and a one-page methodology, then drives itself - search, read, dedup, write, verify - until the work is done.
@@ -31,12 +36,10 @@ Submit a query and an async job spins up a headless Pi coding agent backed by a 
 - Embedding dedup index: `jina-embeddings-v5-nano` is preloaded for the dataroom index (embed / semantic search / dedup), with server-side reconciliation so it never drifts from disk. The agent must search the index before adding anything, to avoid duplicates and keep structure.
 - Live dashboard: real-time context utilization, throughput, tool-call distribution, live activity feed, warnings/errors, progress-to-floor, a stop-reason banner, and the dataroom file tree, at `GET /jobs/{id}/dashboard`.
 
-The homepage (submit a query, watch the live job queue) and a finished job's dashboard ([try it live](https://dataroom.hanxiao.io)):
+The [live dashboard](https://dataroom.hanxiao.io) for a finished job - progress-to-floor, total tokens, tool-call distribution, throughput, the activity feed, and the dataroom file tree:
 
 <p align="center">
-  <img src="assets/screenshot-home.png" width="49%"
-       alt="Dataroom homepage: a query box and a live list of jobs with status, file counts, and pause/resume/download controls" />
-  <img src="assets/screenshot-dashboard.png" width="49%"
+  <img src="assets/screenshot-dashboard.png" width="800"
        alt="Dataroom job dashboard: progress-to-floor, total tokens, tool-call distribution, throughput, live activity feed, and the dataroom file tree" />
 </p>
 
