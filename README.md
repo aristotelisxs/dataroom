@@ -7,6 +7,10 @@ Give it a query. A local model in an autonomous [Pi](https://pi.dev) harness loo
        alt="Give a query to a self-hosted pi + harness + local model loop; it loops search-read-write to build a dataroom and hands you a .zip" />
 </p>
 
+<p align="center">
+  <b>Live demo → <a href="https://dataroom.hanxiao.io">dataroom.hanxiao.io</a></b>
+</p>
+
 ## Why
 
 Long-horizon agent work - implementation, migration, deep analysis - is bottlenecked less by reasoning than by context: you need a grounded, well-organized body of knowledge before the real work can start. That upfront research is mostly a search-read-write loop, and two things are usually wrong with how it gets done today.
@@ -26,6 +30,15 @@ Submit a query and an async job spins up a headless Pi coding agent backed by a 
 - jina CLI: the `jina` CLI is on PATH (search / read / rerank / embed / dedup), driven from bash and composable via pipes (`jina search Q | jina rerank R`, `cat urls.txt | jina read`, `xargs -P 8` for parallel fan-out) so bulky intermediates stay out of the LLM context. CLI-only - no MCP adapter.
 - Embedding dedup index: `jina-embeddings-v5-nano` is preloaded for the dataroom index (embed / semantic search / dedup), with server-side reconciliation so it never drifts from disk. The agent must search the index before adding anything, to avoid duplicates and keep structure.
 - Live dashboard: real-time context utilization, throughput, tool-call distribution, live activity feed, warnings/errors, progress-to-floor, a stop-reason banner, and the dataroom file tree, at `GET /jobs/{id}/dashboard`.
+
+The homepage (submit a query, watch the live job queue) and a finished job's dashboard ([try it live](https://dataroom.hanxiao.io)):
+
+<p align="center">
+  <img src="assets/screenshot-home.png" width="49%"
+       alt="Dataroom homepage: a query box and a live list of jobs with status, file counts, and pause/resume/download controls" />
+  <img src="assets/screenshot-dashboard.png" width="49%"
+       alt="Dataroom job dashboard: progress-to-floor, total tokens, tool-call distribution, throughput, live activity feed, and the dataroom file tree" />
+</p>
 
 ## Install
 
