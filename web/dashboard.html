@@ -52,7 +52,8 @@
     border-left:1px solid var(--line);border-bottom:1px solid var(--line)}
   .cell{border-right:1px solid var(--line);border-bottom:1px solid var(--line);
     padding:14px 16px;min-width:0;overflow:hidden}
-  .cell.errcell.has{order:-1;grid-column:1/-1;border-left:4px solid var(--line)}
+  .cell.errcell{display:none}   /* only shown when it actually has warnings/errors */
+  .cell.errcell.has{display:block;order:9;grid-column:1/-1;border-left:4px solid var(--line)}
   .k{color:var(--mut);font-size:10px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
   .big{font-size:26px;font-weight:600;letter-spacing:-.01em;line-height:1}
   .sub{color:var(--mut);font-size:11px;margin-top:2px}
@@ -310,6 +311,8 @@ const STOP={
   turn_timeout:["stop","STOPPED — a turn timed out"],
   error_index_boot:["err","ERROR — index sidecar failed to start"],
   interrupted:["err","INTERRUPTED"],
+  cancelled:["stop","CANCELLED"],
+  paused:["stop","PAUSED — resume from the homepage or the controls above"],
 };
 function setStatus(s,done){
   const el=$("st");
@@ -328,6 +331,7 @@ async function tick(){
     lastOk=Date.now();
     document.body.classList.remove("stale");
     $("q").textContent=d.query||"—";
+    const live=d.job_status==="running";   // only this job actively running -> blink live indicators
 
     // progress-to-floor: prefer STATUS.md sub-questions, else substantive-file floor
     const pr=d.progress||{}, fl=d.floor||{};
@@ -359,7 +363,7 @@ async function tick(){
     const tps=d.tps||{};
     $("tps").textContent=(tps.decode!=null?tps.decode:"-");
     $("pps").textContent=(tps.prefill!=null?tps.prefill:"-");
-    $("gen").innerHTML=c.processing?'<span class="dot on blink"></span>generating':'<span class="dot"></span>idle';
+    $("gen").innerHTML=(live&&c.processing)?'<span class="dot on blink"></span>generating':'<span class="dot"></span>idle';
 
     $("toolN").textContent=d.tool_calls||0;
     $("turns").textContent=d.turns||0;
@@ -377,20 +381,22 @@ async function tick(){
        <span class="track"><i style="width:${100*dist[k]/max}%"></i></span>
        <span class="n">${dist[k]}</span></div>`).join(""):'<div class="empty">no calls yet</div>';
 
-    // activity feed (newest at bottom; current row highlighted)
+    // activity feed (newest at bottom; current row highlighted). Only blink the newest row
+    // while the job is actually running - a terminal job must not look like work is ongoing.
     const rec=d.recent||[];
     let prevTurn=null;
     $("feed").innerHTML=rec.length?rec.map((e,i)=>{
       const tn=e.turn||0,tcell=tn===prevTurn?'':'t'+tn;prevTurn=tn;
-      return `<li class="${i===rec.length-1?'live':''}"><span class="t">${tcell}</span>
-       <span class="v">${i===rec.length-1?'<span class="dot on blink"></span>':''}${esc(e.tool==='say'?'· '+e.text:e.text)}</span></li>`;
+      const newest=i===rec.length-1;
+      return `<li class="${newest&&live?'live':''}"><span class="t">${tcell}</span>
+       <span class="v">${newest&&live?'<span class="dot on blink"></span>':''}${esc(e.tool==='say'?'· '+e.text:e.text)}</span></li>`;
       }).join(""):'<li class="empty">waiting for the agent…</li>';
     const fe=$("feed");fe.scrollTop=fe.scrollHeight;
 
-    // NOW line: surface the newest feed entry beside progress
+    // NOW line: surface the newest feed entry beside progress (static dot once terminal)
     if(rec.length){
       const e=rec[rec.length-1];
-      $("nowline").innerHTML=`<span class="dot on blink"></span><span class="t">t${e.turn||0}</span>`+
+      $("nowline").innerHTML=`<span class="dot on${live?' blink':''}"></span><span class="t">t${e.turn||0}</span>`+
         esc(e.tool==='say'?e.text:e.text);
     }else{$("nowline").innerHTML='<span class="empty">waiting for the agent…</span>';}
 

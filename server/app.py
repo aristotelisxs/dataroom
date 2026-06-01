@@ -62,10 +62,22 @@ def _status_for(job_dir, rc=None) -> tuple:
     A zip is written for EVERY completed run (clean DONE or budget/ceiling stop), and is
     independently downloadable, so its existence -- not rc -- decides done-vs-failed.
     """
+    # The API's control flag is authoritative for paused/cancelled and survives a restart: the
+    # orchestrator only records a generic 'interrupted' for the SIGTERM it receives, so run_meta
+    # alone cannot distinguish pause vs cancel vs a real interruption.
+    ctl = ""
+    cf = job_dir / "control"
+    if cf.exists():
+        try:
+            ctl = cf.read_text(errors="ignore").strip()
+        except Exception:
+            ctl = ""
+    if ctl == "pause":
+        return "paused", "paused"
+    if ctl == "cancel":
+        return "cancelled", "cancelled"
     rmeta = _run_meta(job_dir)
     sr = rmeta.get("stop_reason")
-    if sr in ("paused", "cancelled"):   # set by the API control flag; survives a restart
-        return sr, sr
     if (job_dir / "dataroom.zip").exists():
         status = "done" if rmeta.get("done") else "stopped"
     elif rc not in (None, 0):
@@ -433,6 +445,10 @@ def stats_ep(job_id: str):
     s = job_stats(job_dir, meta.get("min_files"))
     s["job_id"] = job_id
     s["job_status"] = meta.get("status") or ("done" if (job_dir / "dataroom.zip").exists() else "unknown")
+    # Align the banner's stop_reason with the control-flag-aware status (else a cancelled job can
+    # show the orchestrator's generic 'interrupted' banner).
+    if meta.get("stop_reason") is not None:
+        s["stop_reason"] = meta["stop_reason"]
     query = meta.get("query", "")
     qf = job_dir / "query.txt"
     if not query and qf.exists():
