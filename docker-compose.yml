@@ -80,3 +80,19 @@ services:
     depends_on:
       - llama-server
     restart: unless-stopped
+
+  # Reverse proxy for dataroom.hanxiao.io (Cloudflare -> here). Terminates :80/:443 and
+  # forwards to the app. Self-signed origin cert lives in ./nginx/certs (gitignored, made by
+  # setup.sh / generate-cert). See nginx/dataroom.conf for the rate-limit + proxy config.
+  nginx:
+    image: nginx:alpine
+    container_name: daas-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/dataroom.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      - daas
+    restart: unless-stopped
