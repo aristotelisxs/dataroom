@@ -2,8 +2,8 @@
 #
 # Base: official PyTorch CUDA *runtime* image (torch + CUDA + cuDNN prebuilt, cu128 to
 # match the GCP Deep Learning VM host). Using a prebuilt base avoids recompiling/reinstalling
-# torch + the CUDA stack on every build. The embedder runs on the GPU by default (v5-nano is
-# tiny, <1GB VRAM); set EMBED_DEVICE=cpu to fall back. The LLM runs in the separate
+# torch + the CUDA stack on every build. The embedder runs on CPU by default (so the ~22GB Q4
+# LLM keeps VRAM headroom); set EMBED_DEVICE=cuda to put v5-nano on the GPU. The LLM runs in the separate
 # llama-server (ghcr.io/ggml-org/llama.cpp:server-cuda) container, also prebuilt.
 FROM pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime
 
@@ -52,9 +52,15 @@ SentenceTransformer('jinaai/jina-embeddings-v5-text-nano', device='cpu', trust_r
     || echo "WARN: embed model prefetch skipped (will download on first run)"
 
 ENV JOBS_DIR=/data/jobs
-# Embedder device: cuda (default, shares the L4) or cpu (zero VRAM contention).
-ENV EMBED_DEVICE=cuda
+# Embedder device: cpu (default, zero VRAM contention so the Q4 LLM keeps headroom) or cuda.
+ENV EMBED_DEVICE=cpu
 # Dashboard context bar denominator; keep in sync with llama-server --ctx-size.
 ENV CONTEXT_WINDOW=131072
+
+# OCI metadata: links this image to the GitHub repo as a package, with source + license.
+LABEL org.opencontainers.image.source="https://github.com/hanxiao/dataroom-as-a-service" \
+      org.opencontainers.image.description="Dataroom-as-a-Service app: autonomous Pi + local-model research harness (FastAPI orchestrator + jina v5-nano embedder)" \
+      org.opencontainers.image.licenses="MIT"
+
 EXPOSE 8000
 CMD ["python", "-m", "server.app"]
