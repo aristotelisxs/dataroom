@@ -82,9 +82,13 @@ def boot_index(job_dir: Path, index_port: int) -> subprocess.Popen:
     env = dict(os.environ)
     env["DATAROOM_DIR"] = str(job_dir / "dataroom")
     env["INDEX_PORT"] = str(index_port)
+    # Session marker so /stats only surfaces THIS run's index errors (resume clears prior ones).
+    logf = open(job_dir / "index.log", "a")
+    logf.write(f"\n===== RPC SESSION @ {time.ctime()} =====\n")
+    logf.flush()
     return subprocess.Popen(
         [sys.executable, str(HERE / "index_service.py")],
-        env=env, stdout=open(job_dir / "index.log", "a"),
+        env=env, stdout=logf,
         stderr=subprocess.STDOUT, start_new_session=True,
     )
 

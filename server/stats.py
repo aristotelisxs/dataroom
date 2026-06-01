@@ -223,10 +223,15 @@ def _index_log_errors(job_dir: Path) -> list:
     p = job_dir / "index.log"
     if p.exists():
         try:
-            tail = p.read_text(errors="ignore").splitlines()[-400:]
+            lines = p.read_text(errors="ignore").splitlines()
         except Exception:
-            tail = []
-        for line in tail:
+            lines = []
+        # Only the current run: drop everything up to and including the last session marker.
+        for i in range(len(lines) - 1, -1, -1):
+            if "===== RPC SESSION" in lines[i]:
+                lines = lines[i + 1:]
+                break
+        for line in lines[-400:]:
             if "Traceback" in line or "Error" in line:
                 out.append({"turn": None, "tool": "index", "text": line.strip()[:200]})
     return out[-10:]
@@ -250,6 +255,9 @@ def _iter_events(log_path: Path):
         for raw in f:
             if b'"type":"message_update"' in raw:   # streaming delta -> skip without decoding
                 continue
+            if b"===== RPC SESSION" in raw:          # run boundary -> reset per-run error state
+                yield {"type": "_session_start"}
+                continue
             if b"{" not in raw[:1] and not raw.lstrip().startswith(b"{"):
                 continue
             try:
@@ -270,6 +278,11 @@ def parse_pi_log(log_path: Path, job_dir: Path) -> dict:
     errors = []     # failed tool calls
     for ev in _iter_events(log_path):
                 t = ev.get("type")
+                if t == "_session_start":
+                    # New run (fresh or resume): clear prior warnings/errors so the card reflects
+                    # only the current run. Tokens/tools/turns stay cumulative across the resume.
+                    errors = []
+                    continue
                 if t == "agent_start":
                     turns += 1
                 elif t == "turn_start":
