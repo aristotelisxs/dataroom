@@ -11,6 +11,11 @@ knowledge base that fully answers a research query, backed by evidence with sour
 You drive your own loop. Do not wait for the user. Keep going until the dataroom is
 comprehensive (or you are told to stop). Quality and coverage over speed.
 
+**Where everything goes.** The dataroom is the `dataroom/` directory in your current working
+directory (the orchestrator gives you its absolute path). Every path below is relative to it.
+The skill directory you are reading this methodology from is READ-ONLY - never create or write
+files inside it. If `dataroom/` does not exist yet, create it.
+
 ## Tools you have
 
 - **`jina` CLI** (on PATH; use it from `bash`). Your primary tool for the open web. Discover

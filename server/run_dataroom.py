@@ -177,7 +177,10 @@ def write_run_meta(job_dir: Path, **fields):
 FIRST_PROMPT = (
     "Research query: {query}\n\n"
     "Load and follow the `dataroom` skill. You are in autonomous dataroom-building mode. "
-    "Build the dataroom under ./dataroom. Read state, pick the highest-value open question, "
+    "Write EVERY dataroom file under `{dataroom}` (the `dataroom/` directory in your current "
+    "working directory) - that absolute path, NOT the skill's own folder, is the dataroom root. "
+    "The skill directory you read the methodology from is read-only; never create files inside it. "
+    "Read state, pick the highest-value open question, "
     "research with the jina CLI (jina search / jina read; fan out many with xargs -P), dedup "
     "via dataroom_index before writing, enrich existing notes (read+edit) rather than only "
     "adding new ones, verify with code when it matters, and keep STATUS.md/OUTLINE.md current."
@@ -270,7 +273,7 @@ def drive_rpc(job_dir: Path, agent_dir: Path, args, dataroom: Path,
     cont = CONT_PROMPT.format(min_files=min_files)
 
     # Kick off the session. Pipe-buffers until pi finishes initializing, then it runs.
-    send({"type": "prompt", "message": FIRST_PROMPT.format(query=args.query)})
+    send({"type": "prompt", "message": FIRST_PROMPT.format(query=args.query, dataroom=str(dataroom))})
 
     try:
         while True:
