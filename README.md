@@ -47,6 +47,8 @@ The [live dashboard](https://dataroom.hanxiao.io) for a finished job - progress-
 
 An NVIDIA Docker host runs two containers (llama-server + the app). `scripts/setup.sh` installs Docker + the NVIDIA toolkit, downloads the model, and brings the stack up. The only value you must set is `JINA_API_KEY`; everything else in `.env.example` ships with working defaults.
 
+No NVIDIA GPU? It also runs natively on an Apple Silicon Mac (Metal, no Docker): see [Run on Apple Silicon](#run-on-apple-silicon-mac-no-docker).
+
 Clone and set the key once:
 
 ```bash
