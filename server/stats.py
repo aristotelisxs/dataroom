@@ -312,10 +312,20 @@ def parse_pi_log(log_path: Path, job_dir: Path, live: bool = False) -> dict:
                             if isinstance(cont, list) and cont:
                                 txt = str((cont[0] or {}).get("text") or "")
                         txt = txt or str(ev.get("error") or "tool error")
-                        errors.append({"turn": turns, "tool": ev.get("toolName") or "?",
-                                       "text": txt[:200]})
-                        if len(errors) > 50:
-                            errors.pop(0)
+                        tool = ev.get("toolName") or "?"
+                        # A non-zero `bash` exit with no real output is benign (e.g. `grep` with no
+                        # match, or a probe `cat`/`ls` of a not-yet-created file under `2>/dev/null`):
+                        # it gets flagged as a tool error but never clears, cluttering the warnings
+                        # card. Drop those; keep bash errors that carry actual output/stderr.
+                        benign = False
+                        if tool == "bash":
+                            body = re.sub(r'(?i)command exited with code\s*\d+\.?', '', txt)
+                            body = body.replace("(no output)", "").strip()
+                            benign = not body
+                        if not benign:
+                            errors.append({"turn": turns, "tool": tool, "text": txt[:200]})
+                            if len(errors) > 50:
+                                errors.pop(0)
                 elif t == "message_end":
                     u = (ev.get("message") or {}).get("usage")
                     if u:
