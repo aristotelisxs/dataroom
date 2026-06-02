@@ -77,9 +77,9 @@ def _status_for(job_dir, rc=None) -> tuple:
     sr = rmeta.get("stop_reason")
     if (job_dir / "dataroom.zip").exists():
         status = "done" if rmeta.get("done") else "stopped"
-    elif rc not in (None, 0):
-        status = "failed"
     else:
+        # No zip means the run did not complete (the orchestrator writes one for every clean DONE
+        # or safety-ceiling stop), so it is failed regardless of rc.
         status = "failed"
     return status, sr
 
@@ -141,15 +141,25 @@ def _run_one(job_id: str):
     process group) so pause/cancel can signal it, and maps the exit to a terminal/paused state."""
     job_dir = JOBS / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
+    # Commit to running under the lock. If a pause raced in during the worker's dequeue window
+    # (job already off _queue but status still 'queued'), pause() set status='paused'; honor it and
+    # do not start, otherwise the pause would be silently lost. Clearing the stale control flag also
+    # happens here, under the lock, so a fresh pause control written just after we commit survives.
     with _lock:
         meta = dict(_jobs.get(job_id, {}))
+        if meta.get("status") == "paused":
+            _save_meta(job_id)
+            return
+        _jobs[job_id]["status"] = "running"
+        _jobs[job_id]["started"] = time.time()
+        _jobs[job_id]["finished"] = None
+        try:
+            (job_dir / "control").unlink()
+        except FileNotFoundError:
+            pass
+    _save_meta(job_id)
     query = meta.get("query", "")
     (job_dir / "query.txt").write_text(query)
-    # Clear any stale control flag from a previous pause/cancel before (re)starting.
-    try:
-        (job_dir / "control").unlink()
-    except FileNotFoundError:
-        pass
     cmd = [sys.executable, "-m", "server.run_dataroom", "--query", query, "--out", str(job_dir)]
     if meta.get("max_turns"):
         cmd += ["--max-turns", str(meta["max_turns"])]
@@ -158,10 +168,6 @@ def _run_one(job_id: str):
     env = dict(os.environ)
     if meta.get("min_files"):
         env["MIN_FILES"] = str(int(meta["min_files"]))
-    with _lock:
-        _jobs[job_id]["status"] = "running"
-        _jobs[job_id]["started"] = time.time()
-    _save_meta(job_id)
     log = open(job_dir / "orchestrator.log", "a")
     # start_new_session=True: own process group, so cancel can SIGTERM the whole orchestrator+pi.
     proc = subprocess.Popen(cmd, cwd=str(HERE.parent), env=env, stdout=log,
@@ -274,32 +280,37 @@ def _cur_status(job_id: str) -> str | None:
 def pause(job_id: str):
     """Pause an unfinished job. A queued job just leaves the run queue; a running job gets a
     cooperative 'pause' flag and stops at its next cycle boundary (status -> pausing -> paused).
-    The worker then advances to the next queued job."""
-    st = _cur_status(job_id)
-    if st == "queued":
-        with _cond:
+    The worker then advances to the next queued job.
+
+    The status read + dispatch run under _lock so a pause landing in the worker's dequeue window
+    (job off _queue but not yet flipped to 'running') is resolved against the live status, and
+    _run_one re-checks for 'paused' under the same lock before it starts - so the pause is not lost."""
+    proc = None
+    with _cond:
+        st = (_jobs.get(job_id) or _load_meta(job_id) or {}).get("status")
+        if st == "queued":
             _jobs.setdefault(job_id, {}).update({"status": "paused", "stop_reason": "paused"})
             if job_id in _queue:
                 _queue.remove(job_id)
-        _save_meta(job_id)
-        return {"status": "paused"}
-    if st in ("running", "pausing"):
-        # Flag it (authoritative for the resulting status) AND signal for promptness: a long agent
-        # cycle would otherwise delay the cooperative checkpoint by minutes. SIGTERM -> the
-        # orchestrator's handler unwinds cleanly (reaps pi + index, zips); control=pause -> paused.
-        (JOBS / job_id / "control").write_text("pause")
-        with _lock:
+            _save_meta(job_id)
+            return {"status": "paused"}
+        if st in ("running", "pausing"):
+            # Flag it (authoritative for the resulting status) AND signal for promptness: a long
+            # agent cycle would otherwise delay the cooperative checkpoint by minutes. SIGTERM ->
+            # the orchestrator unwinds cleanly (reaps pi + index, zips); control=pause -> paused.
+            (JOBS / job_id / "control").write_text("pause")
             if job_id in _jobs:
                 _jobs[job_id]["status"] = "pausing"
             proc = _current["proc"] if _current["job_id"] == job_id else None
-        if proc is not None:
-            try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-            except Exception:
-                pass
-        _save_meta(job_id)
-        return {"status": "pausing"}
-    raise HTTPException(409, f"cannot pause a job in state {st}")
+            _save_meta(job_id)
+        else:
+            raise HTTPException(409, f"cannot pause a job in state {st}")
+    if proc is not None:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+        except Exception:
+            pass
+    return {"status": "pausing"}
 
 
 @app.post("/jobs/{job_id}/resume")
@@ -344,7 +355,15 @@ def list_jobs():
             meta = disk or meta
         job_dir = JOBS / jid
         dataroom = job_dir / "dataroom"
-        fm = floor_metrics(dataroom, meta.get("min_files"))
+        # Cheap path for terminal jobs: reuse the floor the orchestrator persisted at stop rather
+        # than re-reading every note's full text on every 4s poll. Only queued/running/pausing
+        # recompute live (their files are still changing).
+        rfloor = (_run_meta(job_dir).get("floor")
+                  if meta.get("status") not in ("queued", "running", "pausing") else None)
+        if rfloor and "substantive_files" in rfloor:
+            fm = rfloor
+        else:
+            fm = floor_metrics(dataroom, meta.get("min_files"))
         pr = _status_progress(dataroom)
         fc = (sum(1 for p in dataroom.rglob("*")
                   if p.is_file() and not p.name.startswith(".index")) if dataroom.exists() else 0)

@@ -44,7 +44,6 @@
   .prog .pcttop{display:flex;align-items:baseline;gap:10px}
   .pbar{height:18px;border:1px solid var(--line);position:relative;margin-top:10px;overflow:hidden}
   .pbar > i{position:absolute;left:0;top:0;bottom:0;background:var(--fill);width:0%}
-  .pbar > .floor{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--fill);opacity:.6}
   #proglabel{display:block;margin-top:8px}
   /* current-action "NOW" line */
   .now .nowline{font-size:13px;overflow-wrap:anywhere;min-height:1.45em}
@@ -145,7 +144,7 @@
     <div class="prog">
       <div class="k">Progress</div>
       <div class="pcttop"><span class="big"><span id="progpct">0</span>%</span></div>
-      <div class="pbar" id="pbar"><i></i><span class="floor" id="floortick" style="left:100%"></span></div>
+      <div class="pbar" id="pbar"><i></i></div>
       <span id="proglabel" class="sub"></span>
     </div>
     <div class="now">
@@ -227,7 +226,7 @@ function ic(n){
   return "";
 }
 
-// job controls: pause<->resume toggle + cancel. Re-tick after so the label flips on confirmed status.
+// job controls: pause<->resume toggle. Re-tick after so the label flips on confirmed status.
 async function post(path){try{await fetch(path,{method:"POST"});}catch(e){}tick();}
 $("pauseBtn").onclick=()=>{const act=$("pauseBtn").dataset.act==="resume"?"resume":"pause";post(`/jobs/${JOB}/${act}`);};
 
@@ -338,6 +337,7 @@ async function tick(){
     let pct, label;
     if(b.max_seconds){
       pct=b.percent||0;
+      if(d.done)pct=100;                       // stopped early on a met floor: full bar, not elapsed%
       const used=Math.round((b.elapsed_seconds||0)/60), tot=Math.round(b.max_seconds/60);
       label=`${used} / ${tot} min · ${fl.substantive_files||0} sourced files`;
     }else if(pr.total>0){
@@ -437,7 +437,7 @@ async function tick(){
     dl.href=`/jobs/${JOB}/snapshot`;
     dl.title=d.done?"Download dataroom.zip":"Download dataroom.zip (so far)";
 
-    // pause/resume/cancel for unfinished jobs (icon-only, title tooltips)
+    // pause/resume for unfinished jobs (icon-only, title tooltips)
     const stt=d.job_status;
     const pb=$("pauseBtn");
     if(stt==="paused"){pb.style.display="";pb.innerHTML=ic("resume");pb.title="resume";pb.dataset.act="resume";pb.disabled=false;}

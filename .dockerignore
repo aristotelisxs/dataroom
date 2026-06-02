@@ -1,0 +1,19 @@
+# Keep the Docker build context tiny. On the deployed box the repo root holds models/ (~22GB
+# GGUF) and data/ (every job's dataroom + logs + zips); `build: .` would otherwise tar all of it
+# to the daemon on every `docker compose build`, defeating the fast warm-cache rebuild and risking
+# ENOSPC. The Dockerfile only COPYs server/pi/templates/web/assets, so excluding these cannot
+# change the image - it only shrinks the context. (.gitignore does NOT scope the build context.)
+models/
+data/
+out/
+.hf/
+nginx/certs/
+.git/
+.github/
+__pycache__/
+*.pyc
+*.zip
+node_modules/
+.venv/
+.env
+dataroom/.index*

@@ -169,11 +169,10 @@ function ic(n){
   if(n==="download")return `<svg ${a}><path d="M8 2.5v7"/><path d="M5 6.8l3 3 3-3"/><path d="M3.5 12.5h9"/></svg>`;
   if(n==="pause")return `<svg ${a}><path d="M6 3.5v9"/><path d="M10 3.5v9"/></svg>`;
   if(n==="resume")return `<svg viewBox="0 0 16 16" width="15" height="15" fill="currentColor"><path d="M5 3.4l7.2 4.6L5 12.6z"/></svg>`;
-  if(n==="cancel")return `<svg ${a}><path d="M4 4l8 8M12 4l-8 8"/></svg>`;
   return "";
 }
 
-// pause/resume/cancel a job, then refresh the list so the button state flips on confirmed status.
+// pause/resume a job, then refresh the list so the button state flips on confirmed status.
 async function jpost(id,act){try{await fetch(`/jobs/${id}/${act}`,{method:"POST"});}catch(e){}loadJobs();}
 function controlsFor(j){
   const s=j.status, id=j.job_id; let h="";
@@ -195,6 +194,7 @@ function progressText(j){
   const fc=j.file_count||0;
   if(["running","done","stopped"].includes(j.status))return `${fc} files`;
   if(j.status==="paused")return `paused · ${fc} files`;   // resumable; show banked work
+  if(j.status==="pausing")return `pausing · ${fc} files`; // transient; until the cycle boundary
   return j.status;   // queued / failed
 }
 function miniBar(j){

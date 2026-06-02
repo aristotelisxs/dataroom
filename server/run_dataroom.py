@@ -86,11 +86,13 @@ def boot_index(job_dir: Path, index_port: int) -> subprocess.Popen:
     logf = open(job_dir / "index.log", "a")
     logf.write(f"\n===== RPC SESSION @ {time.ctime()} =====\n")
     logf.flush()
-    return subprocess.Popen(
+    proc = subprocess.Popen(
         [sys.executable, str(HERE / "index_service.py")],
         env=env, stdout=logf,
         stderr=subprocess.STDOUT, start_new_session=True,
     )
+    logf.close()   # child holds its own inherited fd; drop the parent's copy (no fd leak)
+    return proc
 
 
 def wait_http(url: str, timeout: int = 120) -> bool:
@@ -174,23 +176,21 @@ def write_run_meta(job_dir: Path, **fields):
 
 
 # Prompts ---------------------------------------------------------------------
+# The methodology lives in the skill (SKILL.md), so FIRST/CONT are thin drive nudges, NOT a
+# re-statement of it - they only carry what the skill cannot: the absolute dataroom root and the
+# DONE gate. STALL/CORRECTIVE/CONSOLIDATE below are load-bearing: each injects runtime state the
+# static skill cannot know (stall detection, computed floor metrics, the forced-consolidation cadence).
 FIRST_PROMPT = (
     "Research query: {query}\n\n"
-    "Load and follow the `dataroom` skill. You are in autonomous dataroom-building mode. "
-    "Write EVERY dataroom file under `{dataroom}` (the `dataroom/` directory in your current "
-    "working directory) - that absolute path, NOT the skill's own folder, is the dataroom root. "
-    "The skill directory you read the methodology from is read-only; never create files inside it. "
-    "Read state, pick the highest-value open question, "
-    "research with the jina CLI (jina search / jina read; fan out many with xargs -P), dedup "
-    "via dataroom_index before writing, enrich existing notes (read+edit) rather than only "
-    "adding new ones, verify with code when it matters, and keep STATUS.md/OUTLINE.md current."
+    "Load and follow the `dataroom` skill and build autonomously. Write EVERY dataroom file under "
+    "`{dataroom}` (the `dataroom/` directory in your working directory) - that path, NOT the "
+    "skill's own folder, is the dataroom root; the skill directory is read-only. Begin now: read "
+    "state, then advance the highest-value open question per the skill's loop."
 )
 CONT_PROMPT = (
-    "Continue building the dataroom. Read STATUS.md and the dataroom_index outline first, then "
-    "advance the next highest-value open question. Dedup before writing; prefer enriching an "
-    "existing note over creating a new one. Only write `STATUS: DONE` on the first line of "
-    "STATUS.md once the coverage floor is met (>= {min_files} substantive sourced files, all "
-    "open questions closed, reports/SUMMARY.md present)."
+    "Continue the dataroom per the skill: read STATUS.md and the index outline, then advance the "
+    "next highest-value open question. Only write `STATUS: DONE` once the coverage floor is met "
+    "(>= {min_files} substantive sourced files, all open questions closed, reports/SUMMARY.md present)."
 )
 STALL_PROMPT = (
     "The last cycle added no new substantive sourced files. Do not repeat the same searches. "
