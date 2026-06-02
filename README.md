@@ -206,6 +206,20 @@ That is all you change to swap the LLM. The rest are **advanced overrides**, rar
 
 Non-Qwen caveat: switching to a non-Qwen GGUF is not just a filename swap. The bundled chat template is Qwen3.6-specific - point `CHAT_TEMPLATE_FILE` at the new model's Jinja template (a wrong template silently corrupts tool-calling), or drop the flag to use the GGUF's embedded template. `--spec-type draft-mtp` needs a GGUF that ships an MTP draft head (the `...-MTP-GGUF` repo does); for a plain GGUF set `SPEC_ARGS=` (empty). The `CTX_SIZE` default of 131072 is tuned to Qwen3.6's hybrid GDN+MoE KV math; a dense model of similar size uses far more KV per token, so lower `CTX_SIZE` or it may OOM on the L4. Re-measure VRAM with `nvidia-smi` for any other weights. See `docs/DEPLOY.md` for the deeper reproducibility detail.
 
+**The default L4 tune.** The shipped llama-server settings are the best we could squeeze out of a low-budget L4 (24GB VRAM) without sacrificing generation quality, tuned in [`Qwen3.6-35B-A3B-MTP-L4`](https://github.com/hanxiao/Qwen3.6-35B-A3B-MTP-L4):
+
+| Setting | Value | Why |
+| --- | --- | --- |
+| Quant | `Qwen3.6-35B-A3B` **UD-Q4_K_XL** (~22GB) | best quality that still fits 24GB alongside MTP + KV |
+| MTP draft | `--spec-type draft-mtp --spec-draft-n-max 2` (no `--spec-draft-p-min`) | ~80-90% draft acceptance; `n-max 2` is the sweet spot on this MoE, `p-min` hurts MoE |
+| KV cache | `--cache-type-k/v q4_0` | this hybrid GDN+MoE has only 10/40 KV-bearing layers, so q4_0 KV is tiny (~0.65GB at 131072) |
+| Batch | `-ub 256 -b 2048` | measured-best prefill throughput |
+| Context | `--ctx-size 131072` | full native window; fits with q4_0 KV |
+| Offload | `-ngl` unset (auto-fit) + mmap on | forcing all layers to GPU OOMs once MTP + KV load; auto-fit spills compute-light expert layers to CPU |
+| Cache reuse | omitted | GDN recurrent-state drift can silently corrupt digits (llama.cpp#21681) |
+
+Measured ~22.2GB used at the full 131072 window, no OOM. A smaller **Q3_K_XL** (~17GB) would free enough VRAM to also put the v5-nano embedder on the GPU - but embedding is not the bottleneck (LLM decode is), so we keep the embedder on CPU and spend the freed headroom on **Q4 for slightly better generation quality** instead.
+
 ## Local dev (no GPU)
 
 Point the agent at any OpenAI-compatible endpoint (or a remote Qwen box) via `LLAMA_URL`, then run the harness directly:
