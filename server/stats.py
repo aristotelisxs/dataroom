@@ -9,7 +9,7 @@ Pi `--mode json` emits one JSON object per line. We surface:
   - PROGRESS toward the outcome floor (STATUS.md checkboxes + substantive-file floor),
   - the stop_reason once the run ends (from run_meta.json).
 """
-import json, os, re, urllib.request
+import gzip, json, os, re, urllib.request
 from pathlib import Path
 
 CONTEXT_WINDOW = int(os.environ.get("CONTEXT_WINDOW", os.environ.get("CTX_SIZE", "131072")))
@@ -244,15 +244,24 @@ MAX_LOG_BYTES = 24 * 1024 * 1024
 
 
 def _iter_events(log_path: Path):
-    """Yield parsed JSON events from the tail of pi.log, cheaply skipping message_update deltas."""
-    if not log_path.exists():
-        return
-    size = log_path.stat().st_size
-    with open(log_path, "rb") as f:
+    """Yield parsed JSON events from pi.log, cheaply skipping message_update deltas.
+
+    A terminal job's log may be gzipped for storage (pi.log.gz); we read that transparently.
+    The plain file uses a cheap tail-seek (live jobs append to it); the .gz cold path iterates
+    fully (gzip has no cheap seek), which is fine since it is only read for archived jobs."""
+    gz = Path(str(log_path) + ".gz")
+    if log_path.exists():
+        size = log_path.stat().st_size
+        src = open(log_path, "rb")
         if size > MAX_LOG_BYTES:
-            f.seek(size - MAX_LOG_BYTES)
-            f.readline()                      # discard partial first line
-        for raw in f:
+            src.seek(size - MAX_LOG_BYTES)
+            src.readline()                    # discard partial first line
+    elif gz.exists():
+        src = gzip.open(gz, "rb")
+    else:
+        return
+    try:
+        for raw in src:
             if b'"type":"message_update"' in raw:   # streaming delta -> skip without decoding
                 continue
             if b"===== RPC SESSION" in raw:          # run boundary -> reset per-run error state
@@ -264,6 +273,8 @@ def _iter_events(log_path: Path):
                 yield json.loads(raw.decode("utf-8", "ignore"))
             except Exception:
                 continue
+    finally:
+        src.close()
 
 
 def parse_pi_log(log_path: Path, job_dir: Path, live: bool = False) -> dict:
