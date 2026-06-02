@@ -1,6 +1,6 @@
 # Dataroom
 
-Give it a query. A local model in an autonomous [Pi](https://pi.dev) harness loops search-read-write until it has built a comprehensive, fully-cited **dataroom** on disk - a `.zip` you hand to a frontier model for the long-horizon task itself.
+Give it a query. A local model in a [Pi](https://pi.dev) harness loops search-read-write until it has built a comprehensive, fully-cited **dataroom** on disk - a `.zip` you hand to a frontier model for the long-horizon task.
 
 <p align="center">
   <img src="assets/banner.png" width="860"
@@ -13,9 +13,9 @@ Give it a query. A local model in an autonomous [Pi](https://pi.dev) harness loo
 
 ## Why
 
-Long-horizon agent work - implementation, migration, deep analysis - is bottlenecked less by reasoning than by context: you need a grounded, well-organized body of knowledge before the real work can start. That upfront research is mostly a search-read-write loop, and two things are usually wrong with how it gets done today.
+[For long-horizon agent work you need a grounded, well-organized body of knowledge before the real work can start.](https://x.com/hxiao/status/2044765001370701981?s=20) That upfront research is mostly a search-read-write loop, and few things are usually wrong with how it gets done today.
 
-- **Research is mechanical, so don't pay frontier prices for it.** Gathering and organizing sources is tool-calling, not deep reasoning - a small local model in a disciplined harness (search, dedup, cite, verify) does it fine. And because it runs on your own GPU at near-zero marginal token cost, it can keep going for hours until the dataroom is actually comprehensive, instead of stopping when a metered budget runs out.
+- **Research is mechanical, so don't pay frontier tokens for it.** Gathering and organizing sources is tool-calling, not deep reasoning - a small local model in a disciplined harness (search, dedup, cite, verify) does it fine. And because it runs on your own GPU at near-zero marginal token cost, it can keep going for hours until the dataroom is actually comprehensive, instead of stopping when a metered budget runs out.
 - **The output is context for a machine, not a report for a human.** A 2025-style deep-research run ends in a long PDF nobody reads. Dataroom ends in a structured `.zip` - `topics/`, `sources/`, `data/`, a `SUMMARY.md`, every claim cited - built to be consumed by the next agent, not skimmed.
 - **It is stage one of a two-stage pipeline.** Unzip the dataroom into a frontier model's context and let it do the expensive second stage (usually implementation). The research does not have to be perfect - its consumer is intelligent and can spot gaps - it has to be comprehensive and grounded.
 
@@ -31,8 +31,8 @@ Everything runs locally on your own GPU: the model is self-hosted (llama.cpp), a
 Submit a query and an async job spins up a headless Pi coding agent backed by a self-hosted Qwen3.6-35B-A3B (llama.cpp). The agent runs its own research loop: `pi --mode json --continue` resumes the same per-cwd session across turns, and on each turn it searches, reads, reranks, and writes sourced files into a `dataroom/` directory on disk.
 
 - Autonomous loop: the agent is not micromanaged. It is handed tools and a one-page methodology, then drives itself - search, read, dedup, write, verify - until the work is done.
-- Outcome-based stopping: `DONE` is honored only once the dataroom holds enough substantive sourced files (`MIN_FILES`, default 100), all sub-questions are closed, and a `SUMMARY.md` exists. Turns / seconds / Jina-call caps are only hard backstops, and a premature `DONE` is rejected so the agent keeps going. The reason it stopped is surfaced on the dashboard.
-- jina CLI: the `jina` CLI is on PATH (search / read / rerank / embed / dedup), driven from bash and composable via pipes (`jina search Q | jina rerank R`, `cat urls.txt | jina read`, `xargs -P 8` for parallel fan-out) so bulky intermediates stay out of the LLM context. CLI-only - no MCP adapter.
+- Outcome-based stopping: `DONE` is honored only once the dataroom holds enough substantive sourced files, all sub-questions are closed, and a `SUMMARY.md` exists. Turns / seconds / Jina-call caps are only hard backstops, and a premature `DONE` is rejected so the agent keeps going. The reason it stopped is surfaced on the dashboard.
+- jina CLI: the `jina` CLI is on PATH (search / read / rerank / embed / dedup), driven from bash and composable via pipes (`jina search Q | jina rerank R`, `cat urls.txt | jina read`, `xargs -P 8` for parallel fan-out) so bulky intermediates stay out of the LLM context. 
 - Embedding dedup index: `jina-embeddings-v5-nano` is preloaded for the dataroom index (embed / semantic search / dedup), with server-side reconciliation so it never drifts from disk. The agent must search the index before adding anything, to avoid duplicates and keep structure.
 - Live dashboard: real-time context utilization, throughput, tool-call distribution, live activity feed, warnings/errors, progress-to-floor, a stop-reason banner, and the dataroom file tree, at `GET /jobs/{id}/dashboard`.
 
