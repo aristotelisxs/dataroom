@@ -1,5 +1,5 @@
 #!/bin/bash
-# setup-wsl2.sh
+# setup-win.sh
 # Dataroom setup for Windows + WSL2 + Docker Desktop
 
 set -e
@@ -26,7 +26,7 @@ if [ ! -f .env ]; then
     echo ""
     echo "or"
     echo ""
-    echo "  JINA_API_KEY=jina_xxx bash setup-wsl2.sh"
+    echo "  JINA_API_KEY=jina_xxx bash scripts/setup-win.sh"
     exit 1
   fi
 fi
@@ -174,10 +174,12 @@ fi
 
 echo "=== Waiting for llama-server ==="
 
+LLAMA_OK=0
 for i in $(seq 1 90); do
 
   if curl -fsS http://localhost:8080/health >/dev/null 2>&1; then
     echo "llama-server ready"
+    LLAMA_OK=1
     break
   fi
 
@@ -185,23 +187,35 @@ for i in $(seq 1 90); do
   sleep 5
 done
 
+if [ "$LLAMA_OK" != 1 ]; then
+  echo "ERROR: llama-server did not become ready (loads ~22GB; check: docker compose logs llama-server)" >&2
+  exit 1
+fi
+
 # ---------------------------------------------------------------------
 # API HEALTH CHECK
 # ---------------------------------------------------------------------
 
 echo "=== Waiting for DaaS API ==="
 
+API_OK=0
 for i in $(seq 1 30); do
 
-  if curl -fsS http://localhost:8000/health \
+  if curl -fsS http://localhost:8000/health 2>/dev/null \
       | grep -q '"ok":true'; then
     echo "API ready"
+    API_OK=1
     break
   fi
 
   echo "waiting api ($i/30)"
   sleep 3
 done
+
+if [ "$API_OK" != 1 ]; then
+  echo "ERROR: DaaS API did not become ready (check: docker compose logs daas)" >&2
+  exit 1
+fi
 
 # ---------------------------------------------------------------------
 # OUTPUT
